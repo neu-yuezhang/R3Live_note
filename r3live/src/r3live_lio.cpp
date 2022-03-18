@@ -147,6 +147,52 @@ bool R3LIVE::get_pointcloud_data_from_ros_message(sensor_msgs::PointCloud2::Cons
         }
 }
 
+//提取平面
+// template <typename PointType>
+int num, tt;
+Eigen::VectorXf R3LIVE::get_plane_coeffs(pcl::PointCloud<PointType>::Ptr lidar_cloud, double x, double y, double z)
+{
+        Eigen::VectorXf coeff;
+        typename pcl::PointCloud<PointType>::Ptr ground_cloud;
+        ground_cloud.reset(new pcl::PointCloud<PointType>);
+        for (const auto &p : lidar_cloud->points)
+        {
+                tt++;
+
+                if (std::fabs(p.z - z + 0.7) < 1e-2)
+                {
+                        num++;
+                        // cout << p.z << endl;
+                        ground_cloud->push_back(p);
+                }
+        }
+        num = 0;
+        tt = 0;
+        if (ground_cloud->points.size() > 10)
+        {
+                typename pcl::SampleConsensusModelPlane<PointType>::Ptr model(
+                    new pcl::SampleConsensusModelPlane<PointType>(ground_cloud)); //定义待拟合平面的model，并使用待拟合点云初始化
+                pcl::RandomSampleConsensus<PointType> ransac(model);              //定义RANSAC算法模型
+                ransac.setDistanceThreshold(0.05);                                //设定阈值
+                ransac.computeModel();                                            //拟合
+                ransac.getModelCoefficients(coeff);                               //获取拟合平面参数，对于平面ax+by_cz_d=0，coeff分别按顺序保存a,b,c,d
+                // make the normal upward
+                // 法向量颠倒个方向
+                if (coeff.head<3>().dot(Eigen::Vector3f::UnitZ()) < 0.0f)
+                {
+                        coeff *= -1.0f;
+                }
+
+                sensor_msgs::PointCloud2 laserCloudGround;
+                pcl::toROSMsg(*ground_cloud, laserCloudGround);
+                laserCloudGround.header.stamp = ros::Time::now(); // ros::Time().fromSec(last_timestamp_lidar);
+                laserCloudGround.header.frame_id = "world";
+                pub_ground.publish(laserCloudGround);
+        }
+        // cout << "时间为:  " << laserCloudGround.header.stamp << endl;
+        return coeff;
+}
+
 //将lidar_buffer和imu_buffer_lio中的数据放到MeasureGroup中
 bool R3LIVE::sync_packages(MeasureGroup &meas)
 {
@@ -514,6 +560,7 @@ int R3LIVE::service_LIO_update()
 
         /*** variables initialize ***/
         FOV_DEG = fov_deg + 10;
+        cout << "fov_deg" << fov_deg << endl;
         HALF_FOV_COS = std::cos((fov_deg + 10.0) * 0.5 * PI_M / 180.0);
 
         for (int i = 0; i < laserCloudNum; i++)
@@ -537,7 +584,7 @@ int R3LIVE::service_LIO_update()
                 while (g_camera_lidar_queue.if_lidar_can_process() == false)
                 {
                         ros::spinOnce();
-                        std::this_thread::yield();
+                        std::this_thread::yield(); //让出时间片，把CPU让给其他进程
                         std::this_thread::sleep_for(std::chrono::milliseconds(THREAD_SLEEP_TIM));
                 }
                 std::unique_lock<std::mutex> lock(m_mutex_lio_process);
@@ -568,7 +615,7 @@ int R3LIVE::service_LIO_update()
                         pca_time = 0; // PCA
                         svd_time = 0;
                         t0 = omp_get_wtime();
-                        p_imu->Process(Measures, g_lio_state, feats_undistort); //处理IMU数据，并对点云去畸变
+                        p_imu->Process(Measures, g_lio_state, feats_undistort); //处理IMU数据，并对点云去畸变  并用imu数据进行系统状态预测
 
                         g_camera_lidar_queue.g_noise_cov_acc = p_imu->cov_acc;
                         g_camera_lidar_queue.g_noise_cov_gyro = p_imu->cov_gyr;
@@ -600,10 +647,15 @@ int R3LIVE::service_LIO_update()
                                   << g_lio_state.vel_end.transpose() << " " << g_lio_state.bias_g.transpose() << " " << g_lio_state.bias_a.transpose()
                                   << std::endl;
 #endif
-                        lasermap_fov_segment(); //对fov进行分割
-                        downSizeFilterSurf.setInputCloud(feats_undistort); //点云降采样
-                        downSizeFilterSurf.filter(*feats_down);
-                        // cout <<"Preprocess cost time: " << tim.toc("Preprocess") << endl;
+                        lasermap_fov_segment();                            //更新localmap边界，然后降采样当前帧点云
+                        downSizeFilterSurf.setInputCloud(feats_undistort); //点云降采样  原点云
+                        downSizeFilterSurf.filter(*feats_down);            //降采样之后的点云
+                        // cout << "降采样之前:  " << feats_down->points.size() << endl;
+                        //  feats_undistort.point
+
+                        /*cout << "地面法线: " << ground_plane_coeff[0] << "  " << ground_plane_coeff[1] << "  "
+                             << ground_plane_coeff[2] << "  " << ground_plane_coeff[3] << "  " << ground_plane_coeff[4] << endl;*/
+                        //  cout <<"Preprocess cost time: " << tim.toc("Preprocess") << endl;
                         /*** initialize the map kdtree ***/
                         if ((feats_down->points.size() > 1) && (ikdtree.Root_Node == nullptr))
                         {
@@ -624,16 +676,16 @@ int R3LIVE::service_LIO_update()
 
                         int feats_down_size = feats_down->points.size();
 
-                        /*** ICP and iterated Kalman filter update ***/
-                        PointCloudXYZINormal::Ptr coeffSel_tmpt(new PointCloudXYZINormal(*feats_down));
-                        PointCloudXYZINormal::Ptr feats_down_updated(new PointCloudXYZINormal(*feats_down));
-                        std::vector<double> res_last(feats_down_size, 1000.0); // initial
+                        /*** ICP and iterated Kalman filter update  ICP和迭代卡尔曼更新***/
+                        PointCloudXYZINormal::Ptr coeffSel_tmpt(new PointCloudXYZINormal(*feats_down));      //用来存法向量
+                        PointCloudXYZINormal::Ptr feats_down_updated(new PointCloudXYZINormal(*feats_down)); //世界坐标系下的点
+                        std::vector<double> res_last(feats_down_size, 1000.0);                               // initial 定义feats_down_size个初始值为1000的向量
 
-                        if (featsFromMapNum >= 5)
+                        if (featsFromMapNum >= 5) // ikdtree中的点
                         {
                                 t1 = omp_get_wtime();
 
-                                if (m_if_publish_feature_map)
+                                if (m_if_publish_feature_map) //是否发布特征地图，默认为false
                                 {
                                         PointVector().swap(ikdtree.PCL_Storage);
                                         ikdtree.flatten(ikdtree.Root_Node, ikdtree.PCL_Storage, NOT_RECORD);
@@ -649,7 +701,7 @@ int R3LIVE::service_LIO_update()
                                 }
 
                                 std::vector<bool> point_selected_surf(feats_down_size, true);
-                                std::vector<std::vector<int>> pointSearchInd_surf(feats_down_size);
+                                // std::vector<std::vector<int>> pointSearchInd_surf(feats_down_size);
                                 std::vector<PointVector> Nearest_Points(feats_down_size);
 
                                 int rematch_num = 0;
@@ -660,6 +712,7 @@ int R3LIVE::service_LIO_update()
                                 t2 = omp_get_wtime();
                                 double maximum_pt_range = 0.0;
                                 // cout <<"Preprocess 2 cost time: " << tim.toc("Preprocess") << endl;
+                                double sou_start = omp_get_wtime();
                                 for (iterCount = 0; iterCount < NUM_MAX_ITERATIONS; iterCount++)
                                 {
                                         tim.tic("Iter");
@@ -671,27 +724,38 @@ int R3LIVE::service_LIO_update()
                                         for (int i = 0; i < feats_down_size; i += m_lio_update_point_step)
                                         {
                                                 double search_start = omp_get_wtime();
-                                                PointType &pointOri_tmpt = feats_down->points[i];
+                                                PointType &pointOri_tmpt = feats_down->points[i]; //从降采样后的点云中取一点
                                                 double ori_pt_dis =
                                                     sqrt(pointOri_tmpt.x * pointOri_tmpt.x + pointOri_tmpt.y * pointOri_tmpt.y + pointOri_tmpt.z * pointOri_tmpt.z);
                                                 maximum_pt_range = std::max(ori_pt_dis, maximum_pt_range);
+                                                // cout << "maximum_pt_range  " << maximum_pt_range << endl;
                                                 PointType &pointSel_tmpt = feats_down_updated->points[i];
 
+                                                // cout << pointSel_tmpt << endl;
                                                 /* transform to world frame */
-                                                pointBodyToWorld(&pointOri_tmpt, &pointSel_tmpt);
+                                                pointBodyToWorld(&pointOri_tmpt, &pointSel_tmpt); //将点云转换到世界坐标系下
                                                 std::vector<float> pointSearchSqDis_surf;
 
-                                                auto &points_near = Nearest_Points[i];
+                                                auto &points_near = Nearest_Points[i]; //附近的五个点
+                                                // cout << "Nearest_Points" << Nearest_Points[i].size() << endl;
 
-                                                if (iterCount == 0 || rematch_en)
+                                                if (iterCount == 0 || rematch_en) //如果是第一次迭代或者......  只在第一次迭代的时候去搜索平面
                                                 {
                                                         point_selected_surf[i] = true;
-                                                        /** Find the closest surfaces in the map **/
-                                                        ikdtree.Nearest_Search(pointSel_tmpt, NUM_MATCH_POINTS, points_near, pointSearchSqDis_surf); // Lio状态更新
+                                                        /** Find the closest surfaces in the map 在地图中找到最近的表面 **/
+                                                        ikdtree.Nearest_Search(pointSel_tmpt, NUM_MATCH_POINTS, points_near, pointSearchSqDis_surf); // Lio状态更新  NUM_MATCH_POINTS=5
+                                                        // cout << "points_near : " << points_near << endl;
                                                         float max_distance = pointSearchSqDis_surf[NUM_MATCH_POINTS - 1];
+                                                        /*for (int i = 0; i < pointSearchSqDis_surf.size(); i++)
+                                                        {
+                                                                cout << pointSearchSqDis_surf[i] << "  ";
+                                                        }
+                                                        cout << "  " << endl;*/
                                                         //  max_distance to add residuals
                                                         // ANCHOR - Long range pt stragetry
-                                                        if (max_distance > m_maximum_pt_kdtree_dis)
+                                                        // m_maximum_pt_kdtree_dis=1
+                                                        //判断是否是有效匹配点，与loam系列类似，要求特征点最近邻的地图点数量大于阈值，距离小于阈值
+                                                        if (max_distance > m_maximum_pt_kdtree_dis) //如果当前点距离最近平面的距离太远，就不要这个点
                                                         {
                                                                 point_selected_surf[i] = false;
                                                         }
@@ -708,6 +772,9 @@ int R3LIVE::service_LIO_update()
                                                 cv::Mat matB0(NUM_MATCH_POINTS, 1, CV_32F, cv::Scalar::all(-1));
                                                 cv::Mat matX0(NUM_MATCH_POINTS, 1, CV_32F, cv::Scalar::all(0));
 
+                                                // cv::Mat matD0(NUM_MATCH_POINTS, 1, CV_32F, cv::Scalar::all(1));
+                                                // cv::Mat matX1(NUM_MATCH_POINTS, 1, CV_32F, cv::Scalar::all(0));
+
                                                 for (int j = 0; j < NUM_MATCH_POINTS; j++)
                                                 {
                                                         matA0.at<float>(j, 0) = points_near[j].x;
@@ -715,8 +782,16 @@ int R3LIVE::service_LIO_update()
                                                         matA0.at<float>(j, 2) = points_near[j].z;
                                                 }
 
-                                                cv::solve(matA0, matB0, matX0, cv::DECOMP_QR); // TODO     AX=B
+                                                cv::solve(matA0, matB0, matX0, cv::DECOMP_QR); // TODO     AX=B  //计算平面法向量
 
+                                                // cv::solve(matA0, matD0, matX1, cv::DECOMP_QR); // TODO     AX=B  //计算平面法向量
+                                                // cout << "X0: " << matX0 << endl;
+                                                // cout << "X1: " << matX1 << endl;
+                                                //  cout << "A: " << matA0 << endl;
+                                                //  cout << "B: " << matB0 << endl;
+                                                //  cout << "X: " << matX0 << endl;
+
+                                                //求法向量
                                                 float pa = matX0.at<float>(0, 0);
                                                 float pb = matX0.at<float>(1, 0);
                                                 float pc = matX0.at<float>(2, 0);
@@ -727,13 +802,13 @@ int R3LIVE::service_LIO_update()
                                                 pb /= ps;
                                                 pc /= ps;
                                                 pd /= ps;
-
+                                                // cout << "ps" << ps << endl;
                                                 bool planeValid = true;
                                                 for (int j = 0; j < NUM_MATCH_POINTS; j++)
                                                 {
-                                                        // ANCHOR -  Planar check
+                                                        // ANCHOR -  Planar check 平面检查
                                                         if (fabs(pa * points_near[j].x + pb * points_near[j].y + pc * points_near[j].z + pd) >
-                                                            m_planar_check_dis) // Raw 0.05
+                                                            m_planar_check_dis) // Raw    m_planar_check_dis=0.05  判断是不是放养
                                                         {
                                                                 // ANCHOR - Far distance pt processing
                                                                 if (ori_pt_dis < maximum_pt_range * 0.90 || (ori_pt_dis < m_long_rang_pt_dis))
@@ -745,13 +820,14 @@ int R3LIVE::service_LIO_update()
                                                                 }
                                                         }
                                                 }
-
-                                                if (planeValid)
+                                                // points_near是在全局地图里面找到的五个点，pa pb pc也是根据这五个点求出来的法向量
+                                                //根据这个法向量和
+                                                if (planeValid) //如果是平面
                                                 {
-                                                        float pd2 = pa * pointSel_tmpt.x + pb * pointSel_tmpt.y + pc * pointSel_tmpt.z + pd;
+                                                        float pd2 = pa * pointSel_tmpt.x + pb * pointSel_tmpt.y + pc * pointSel_tmpt.z + pd; // pd2为残差
                                                         float s = 1 - 0.9 * fabs(pd2) /
                                                                           sqrt(sqrt(pointSel_tmpt.x * pointSel_tmpt.x + pointSel_tmpt.y * pointSel_tmpt.y +
-                                                                                    pointSel_tmpt.z * pointSel_tmpt.z));
+                                                                                    pointSel_tmpt.z * pointSel_tmpt.z)); //近的点权重低？
                                                         // ANCHOR -  Point to plane distance   点到平面的距离
                                                         double acc_distance = (ori_pt_dis < m_long_rang_pt_dis) ? m_maximum_res_dis : 1.0;
                                                         if (pd2 < acc_distance)
@@ -763,10 +839,10 @@ int R3LIVE::service_LIO_update()
                                                                 //     continue;
                                                                 // }
                                                                 point_selected_surf[i] = true;
-                                                                coeffSel_tmpt->points[i].x = pa;
+                                                                coeffSel_tmpt->points[i].x = pa; //法向量
                                                                 coeffSel_tmpt->points[i].y = pb;
                                                                 coeffSel_tmpt->points[i].z = pc;
-                                                                coeffSel_tmpt->points[i].intensity = pd2;
+                                                                coeffSel_tmpt->points[i].intensity = pd2; //残差存到intensity里
                                                                 res_last[i] = std::abs(pd2);
                                                         }
                                                         else
@@ -776,29 +852,34 @@ int R3LIVE::service_LIO_update()
                                                 }
                                                 pca_time += omp_get_wtime() - pca_start;
                                         }
+                                        // double sou_start2 = omp_get_wtime() - sou_start;
+                                        // cout << "搜索时间" << sou_start2 << endl;
                                         tim.tic("Stack");
                                         double total_residual = 0.0;
                                         laserCloudSelNum = 0;
+                                        // cout << "coeffSel_tmpt  " << coeffSel_tmpt->points.size() << endl;
 
-                                        for (int i = 0; i < coeffSel_tmpt->points.size(); i++)
+                                        for (int i = 0; i < coeffSel_tmpt->points.size(); i++) //只保留有效的特征点
                                         {
-                                                if (point_selected_surf[i] && (res_last[i] <= 2.0))
+                                                if (point_selected_surf[i] && (res_last[i] <= 2.0)) //残差小于2
                                                 {
                                                         laserCloudOri->push_back(feats_down->points[i]);
                                                         coeffSel->push_back(coeffSel_tmpt->points[i]);
-                                                        total_residual += res_last[i];
-                                                        laserCloudSelNum++;
+                                                        total_residual += res_last[i]; //残差之和
+                                                        laserCloudSelNum++;            //有效的残差个数
                                                 }
                                         }
-                                        res_mean_last = total_residual / laserCloudSelNum;
-
+                                        res_mean_last = total_residual / laserCloudSelNum; //平均残差（没啥用）
+                                        // cout << laserCloudSelNum << endl;
                                         match_time += omp_get_wtime() - match_start;
                                         solve_start = omp_get_wtime();
 
                                         /*** Computation of Measuremnt Jacobian matrix H and measurents vector  测量雅可比矩阵H和测量向量的计算***/
+                                        // Hsub是观测h相对于状态x（姿态、位置、imu和雷达间的变换）的jacobian，见fatliov1的论文公式(14)
                                         Eigen::MatrixXd Hsub(laserCloudSelNum, 6);
                                         Eigen::VectorXd meas_vec(laserCloudSelNum);
                                         Hsub.setZero();
+                                        // cout << "laserCloudSelNum" << laserCloudSelNum << endl;
 
                                         for (int i = 0; i < laserCloudSelNum; i++)
                                         {
@@ -806,17 +887,24 @@ int R3LIVE::service_LIO_update()
                                                 Eigen::Vector3d point_this(laser_p.x, laser_p.y, laser_p.z);
                                                 point_this += Lidar_offset_to_IMU;
                                                 Eigen::Matrix3d point_crossmat;
-                                                point_crossmat << SKEW_SYM_MATRIX(point_this);
+                                                point_crossmat << SKEW_SYM_MATRIX(point_this); //反对称矩阵
+
+                                                // cout << "point_this " << point_this << endl;
+                                                // cout << "point_crossmat " << point_crossmat << endl;
 
                                                 /*** get the normal vector of closest surface/corner 求最近曲面/角的法向量 ***/
-                                                const PointType &norm_p = coeffSel->points[i];
-                                                Eigen::Vector3d norm_vec(norm_p.x, norm_p.y, norm_p.z);
+                                                const PointType &norm_p = coeffSel->points[i];          //法向量
+                                                Eigen::Vector3d norm_vec(norm_p.x, norm_p.y, norm_p.z); //法向量
 
                                                 /*** calculate the Measuremnt Jacobian matrix H 计算测量雅可比矩阵H ***/
+                                                //见fatlio v1的论文公式(14)，求导这部分没太看懂怎么推出来的,似乎用右扰动模型推导后再转置就是这个结果
                                                 Eigen::Vector3d A(point_crossmat * g_lio_state.rot_end.transpose() * norm_vec);
-                                                Hsub.row(i) << VEC_FROM_ARRAY(A), norm_p.x, norm_p.y, norm_p.z;
-
+                                                Hsub.row(i) << VEC_FROM_ARRAY(A), norm_p.x, norm_p.y, norm_p.z; //观测的雅克比矩阵
+                                                // cout << "A " << A << endl;
+                                                // cout << "VEC_FROM_ARRAY " << Hsub.row(i) << endl;
+                                                //  cout << "Hsub " << Hsub.row(i).size() << endl;
                                                 /*** Measuremnt: distance to the closest surface/corner  测量:距离最近的表面/角落 ***/
+                                                //残差存到观测h里
                                                 meas_vec(i) = -norm_p.intensity;
                                         }
 
@@ -829,16 +917,18 @@ int R3LIVE::service_LIO_update()
                                         {
                                                 cout << ANSI_COLOR_RED_BOLD << "Run EKF init" << ANSI_COLOR_RESET << endl;
                                                 /*** only run in initialization period ***/
-                                                set_initial_state_cov(g_lio_state);
+                                                set_initial_state_cov(g_lio_state); //初始化协方差矩阵
                                         }
                                         else
                                         {
                                                 // cout << ANSI_COLOR_RED_BOLD << "Run EKF uph" << ANSI_COLOR_RESET << endl;
                                                 auto &&Hsub_T = Hsub.transpose();
-                                                H_T_H.block<6, 6>(0, 0) = Hsub_T * Hsub;
+                                                H_T_H.block<6, 6>(0, 0) = Hsub_T * Hsub; // H^T*R^-1*H
+
                                                 Eigen::Matrix<double, DIM_OF_STATES, DIM_OF_STATES> &&K_1 =
-                                                    (H_T_H + (g_lio_state.cov / LASER_POINT_COV).inverse()).inverse();
-                                                K = K_1.block<DIM_OF_STATES, 6>(0, 0) * Hsub_T;
+                                                    (H_T_H + (g_lio_state.cov / LASER_POINT_COV).inverse()).inverse(); // (H^T*R^-1*H + P^-1)^-1  P=g_lio_state.cov / LASER_POINT_COV
+
+                                                K = K_1.block<DIM_OF_STATES, 6>(0, 0) * Hsub_T; // R^-1 = E
 
                                                 auto vec = state_propagate - g_lio_state;
                                                 solution = K * (meas_vec - Hsub * vec.block<6, 1>(0, 0));
@@ -851,10 +941,10 @@ int R3LIVE::service_LIO_update()
                                                 g_lio_state = state_propagate + solution;
                                                 // print_dash_board();
                                                 //  cout << ANSI_COLOR_RED_BOLD << "Run EKF uph, vec = " << vec.head<9>().transpose() << ANSI_COLOR_RESET << endl;
-                                                rot_add = solution.block<3, 1>(0, 0);
-                                                t_add = solution.block<3, 1>(3, 0);
+                                                rot_add = solution.block<3, 1>(0, 0); //旋转量的后验
+                                                t_add = solution.block<3, 1>(3, 0);   //平移量的后验
                                                 flg_EKF_converged = false;
-                                                if (((rot_add.norm() * 57.3 - deltaR) < 0.01) && ((t_add.norm() * 100 - deltaT) < 0.015))
+                                                if (((rot_add.norm() * 57.3 - deltaR) < 0.01) && ((t_add.norm() * 100 - deltaT) < 0.015)) // 180 / 3.14 = 57.3 判断是否收敛
                                                 {
                                                         flg_EKF_converged = true;
                                                 }
@@ -866,6 +956,7 @@ int R3LIVE::service_LIO_update()
                                         // printf_line;
                                         g_lio_state.last_update_time = Measures.lidar_end_time;
                                         euler_cur = RotMtoEuler(g_lio_state.rot_end);
+                                        // cout << g_lio_state.bias_g << endl;
                                         dump_lio_state_to_log(m_lio_state_fp);
 
                                         /*** Rematch Judgement ***/
@@ -884,7 +975,7 @@ int R3LIVE::service_LIO_update()
                                                 {
                                                         /*** Covariance Update ***/
                                                         G.block<DIM_OF_STATES, 6>(0, 0) = K * Hsub;
-                                                        g_lio_state.cov = (I_STATE - G) * g_lio_state.cov;
+                                                        g_lio_state.cov = (I_STATE - G) * g_lio_state.cov; //协方差更新 （I-KH）
                                                         total_distance += (g_lio_state.pos_end - position_last).norm();
                                                         position_last = g_lio_state.pos_end;
 
@@ -901,8 +992,9 @@ int R3LIVE::service_LIO_update()
                                         // cout <<"Iter cost time: " << tim.toc("Iter") << endl;
                                 }
 
-                                t3 = omp_get_wtime();
-
+                                // t3 = omp_get_wtime();
+                                // double tt = t3 - t2;
+                                // cout << "迭代的时间  " << solve_time << endl;
                                 /*** add new frame points to map ikdtree ***/
                                 PointVector points_history;
                                 ikdtree.acquire_removed_points(points_history);
@@ -977,6 +1069,7 @@ int R3LIVE::service_LIO_update()
                                 {
                                         std::vector<std::shared_ptr<RGB_pts>> pts_last_hitted;
                                         pts_last_hitted.reserve(1e6);
+                                        //m_map_rgb_pts.append_points_to_global_map(...)向rgb点云地图中加入新点
                                         m_number_of_new_visited_voxel = m_map_rgb_pts.append_points_to_global_map(
                                             *laserCloudFullResColor, Measures.lidar_end_time - g_camera_lidar_queue.m_first_imu_time, &pts_last_hitted,
                                             m_append_global_map_point_step);
@@ -1029,6 +1122,14 @@ int R3LIVE::service_LIO_update()
                         odomAftMapped.pose.pose.position.x = g_lio_state.pos_end(0);
                         odomAftMapped.pose.pose.position.y = g_lio_state.pos_end(1);
                         odomAftMapped.pose.pose.position.z = g_lio_state.pos_end(2);
+
+                        // cout << feats_down_updated->points.size() << endl;
+                        /*sensor_msgs::PointCloud2 laserCloudGround;
+                        pcl::toROSMsg(*feats_down_updated, laserCloudGround);
+                        laserCloudGround.header.stamp = ros::Time::now(); // ros::Time().fromSec(last_timestamp_lidar);
+                        laserCloudGround.header.frame_id = "world";
+                        pub_ground.publish(laserCloudGround);*/
+                        Eigen::VectorXf ground_plane_coeff = get_plane_coeffs(feats_down_updated, g_lio_state.pos_end(0), g_lio_state.pos_end(1), g_lio_state.pos_end(2));
 
                         Eigen::Quaterniond tt_quaternion(odomAftMapped.pose.pose.orientation.w,
                                                          odomAftMapped.pose.pose.orientation.x,

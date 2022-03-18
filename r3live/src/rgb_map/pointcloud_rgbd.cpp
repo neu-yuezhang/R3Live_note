@@ -526,7 +526,7 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
         // int pts_size = m_rgb_pts_vec.size();
         std::vector<std::shared_ptr<RGB_pts>> pts_for_projection;
         m_mutex_m_box_recent_hitted->lock();
-        std::unordered_set<std::shared_ptr<RGB_Voxel>> boxes_recent_hitted = m_voxels_recent_visited;
+        std::unordered_set<std::shared_ptr<RGB_Voxel>> boxes_recent_hitted = m_voxels_recent_visited; // unordered_set内部实现是基于哈希表
         m_mutex_m_box_recent_hitted->unlock();
         if ((!use_all_pts) && boxes_recent_hitted.size())
         {

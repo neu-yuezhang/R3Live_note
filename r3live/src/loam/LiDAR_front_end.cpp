@@ -91,6 +91,22 @@ bool edge_jump_judge(const pcl::PointCloud<PointType> &pl, vector<orgtype> &type
 
 int orders[16] = {0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15};
 
+/*移植部分*/
+/*ros::Publisher pubFullLaserCloud;
+ros::Publisher pubSharpCloud;
+ros::Publisher pubFlatCloud;
+ros::Publisher pubNonFeature;
+
+LidarFeatureExtractor *lidarFeatureExtractor;
+pcl::PointCloud<PointType>::Ptr laserCloud;
+pcl::PointCloud<PointType>::Ptr laserConerCloud;
+pcl::PointCloud<PointType>::Ptr laserSurfCloud;
+pcl::PointCloud<PointType>::Ptr laserNonFeatureCloud;
+int Lidar_Type = 0;
+int N_SCANS = 6;
+bool Feature_Mode = false;
+bool Use_seg = false;*/
+
 void velo16_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 {
         // TODO
@@ -197,7 +213,7 @@ int main(int argc, char **argv)
         pub_full = n.advertise<sensor_msgs::PointCloud2>("/laser_cloud", 100);
         pub_surf = n.advertise<sensor_msgs::PointCloud2>("/laser_cloud_flat", 100);
         pub_corn = n.advertise<sensor_msgs::PointCloud2>("/laser_cloud_sharp", 100);
-        
+
         ros::spin();
         return 0;
 }
@@ -333,7 +349,7 @@ void give_feature(pcl::PointCloud<PointType> &pl, vector<orgtype> &types, pcl::P
                 cout << head << endl;
         for (uint i = head; i < plsize2; i += g_LiDAR_sampling_point_step)
         {
-                if (types[i].range > blind)
+                if (types[i].range > 0.01)
                 {
                         ap.x = pl[i].x;
                         ap.y = pl[i].y;

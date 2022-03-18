@@ -101,7 +101,7 @@ public:
                 initUndistortRectifyMap(m_intrinsic, m_dist_coeffs, cv::Mat(), m_intrinsic, imageSize, CV_16SC2, m_ud_map1, m_ud_map2);
         }
 
-        void update_last_tracking_vector_and_ids()
+        void update_last_tracking_vector_and_ids() //更新跟踪的特征点
         {
                 int idx = 0;
                 m_last_tracked_pts.clear();

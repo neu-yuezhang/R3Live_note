@@ -109,9 +109,9 @@ void ImuProcess::lic_state_propagate(const MeasureGroup &meas, StatesGroup &stat
         PointCloudXYZINormal pcl_out = *(meas.lidar);
         std::sort(pcl_out.points.begin(), pcl_out.points.end(), time_list);
         const double &pcl_end_time = pcl_beg_time + pcl_out.points.back().curvature / double(1000);
-        double end_pose_dt = pcl_end_time - imu_end_time;
+        double end_pose_dt = pcl_end_time - imu_end_time; // dt
 
-        state_inout = imu_preintegration(state_inout, v_imu, end_pose_dt);
+        state_inout = imu_preintegration(state_inout, v_imu, end_pose_dt); // IMU预积分
         last_imu_ = meas.imu.back();
 }
 
@@ -174,14 +174,14 @@ StatesGroup ImuProcess::imu_preintegration(const StatesGroup &state_in, std::deq
         //        v_imu.back()->header.stamp.toSec() - g_lidar_star_tim,
         //        state_in.last_update_time - g_lidar_star_tim,
         //        state_in.last_update_time - v_imu.front()->header.stamp.toSec());
-        for (std::deque<sensor_msgs::Imu::ConstPtr>::iterator it_imu = v_imu.begin(); it_imu != (v_imu.end() - 1); it_imu++)
+        for (std::deque<sensor_msgs::Imu::ConstPtr>::iterator it_imu = v_imu.begin(); it_imu != (v_imu.end() - 1); it_imu++) //遍历IMU数据
         {
                 // if(g_lidar_star_tim == 0 || state_inout.last_update_time == 0)
                 // {
                 //   return state_inout;
                 // }
-                sensor_msgs::Imu::ConstPtr head = *(it_imu);
-                sensor_msgs::Imu::ConstPtr tail = *(it_imu + 1);
+                sensor_msgs::Imu::ConstPtr head = *(it_imu);     //当前IMU的时间戳
+                sensor_msgs::Imu::ConstPtr tail = *(it_imu + 1); //下一个IMU的时间戳
 
                 angvel_avr << 0.5 * (head->angular_velocity.x + tail->angular_velocity.x), 0.5 * (head->angular_velocity.y + tail->angular_velocity.y),
                     0.5 * (head->angular_velocity.z + tail->angular_velocity.z);
@@ -197,7 +197,7 @@ StatesGroup ImuProcess::imu_preintegration(const StatesGroup &state_in, std::deq
                         continue;
                 }
 
-                if (if_first_imu)
+                if (if_first_imu) //如果是第一个IMU的数据
                 {
                         if_first_imu = 0;
                         dt = tail->header.stamp.toSec() - state_inout.last_update_time;
@@ -214,7 +214,7 @@ StatesGroup ImuProcess::imu_preintegration(const StatesGroup &state_in, std::deq
                 /* covariance propagation */
                 Eigen::Matrix3d acc_avr_skew;
                 Eigen::Matrix3d Exp_f = Exp(angvel_avr, dt);
-                acc_avr_skew << SKEW_SYM_MATRIX(acc_avr);
+                acc_avr_skew << SKEW_SYM_MATRIX(acc_avr); //加速度
                 // Eigen::Matrix3d Jr_omega_dt = right_jacobian_of_rotion_matrix<double>(angvel_avr*dt);
                 Eigen::Matrix3d Jr_omega_dt = Eigen::Matrix3d::Identity();
                 F_x.block<3, 3>(0, 0) = Exp_f.transpose();
@@ -244,7 +244,7 @@ StatesGroup ImuProcess::imu_preintegration(const StatesGroup &state_in, std::deq
                 // gyro covariance cov_w.block<3, 3>(21, 21).diagonal() = Eigen::Vector3d(COV_NOISE_EXT_I2C_T, COV_NOISE_EXT_I2C_T, COV_NOISE_EXT_I2C_T) * dt
                 // * dt;  // bias acc covariance cov_w(24, 24) = COV_NOISE_EXT_I2C_Td * dt * dt;
 
-                state_inout.cov = F_x * state_inout.cov * F_x.transpose() + cov_w;
+                state_inout.cov = F_x * state_inout.cov * F_x.transpose() + cov_w; //状态传播
 
                 R_imu = R_imu * Exp_f;
                 acc_imu = R_imu * acc_avr - state_inout.gravity;
@@ -308,11 +308,11 @@ void ImuProcess::lic_point_cloud_undistort(const MeasureGroup &meas, const State
         auto v_imu = meas.imu;
         v_imu.push_front(last_imu_);
         const double &imu_end_time = v_imu.back()->header.stamp.toSec();
-        const double &pcl_beg_time = meas.lidar_beg_time;
+        const double &pcl_beg_time = meas.lidar_beg_time; //当前帧点云的时间
         /*** sort point clouds by offset time 根据偏移时间对点云进行排序 ***/
         pcl_out = *(meas.lidar);
         std::sort(pcl_out.points.begin(), pcl_out.points.end(), time_list);
-        const double &pcl_end_time = pcl_beg_time + pcl_out.points.back().curvature / double(1000);
+        const double &pcl_end_time = pcl_beg_time + pcl_out.points.back().curvature / double(1000); //当前帧最后一个点云的时间
         /*std::cout << "[ IMU Process ]: Process lidar from " << pcl_beg_time - g_lidar_star_tim << " to " << pcl_end_time- g_lidar_star_tim << ", "
                   << meas.imu.size() << " imu msgs from " << imu_beg_time- g_lidar_star_tim << " to " << imu_end_time- g_lidar_star_tim
                   << ", last tim: " << state_inout.last_update_time- g_lidar_star_tim << std::endl;
@@ -328,7 +328,7 @@ void ImuProcess::lic_point_cloud_undistort(const MeasureGroup &meas, const State
         Eigen::MatrixXd F_x(Eigen::Matrix<double, DIM_OF_STATES, DIM_OF_STATES>::Identity());
         Eigen::MatrixXd cov_w(Eigen::Matrix<double, DIM_OF_STATES, DIM_OF_STATES>::Zero());
         double dt = 0;
-        for (auto it_imu = v_imu.begin(); it_imu != (v_imu.end() - 1); it_imu++)
+        for (auto it_imu = v_imu.begin(); it_imu != (v_imu.end() - 1); it_imu++) //遍历IMU数据
         {
                 auto &&head = *(it_imu);     //当前的IMU
                 auto &&tail = *(it_imu + 1); //下一个IMU
@@ -348,39 +348,39 @@ void ImuProcess::lic_point_cloud_undistort(const MeasureGroup &meas, const State
                 /* covariance propagation */
 
                 Eigen::Matrix3d acc_avr_skew;
-                Eigen::Matrix3d Exp_f = Exp(angvel_avr, dt); //角速度乘以时间 = 角度
+                Eigen::Matrix3d Exp_f = Exp(angvel_avr, dt); //角速度乘以时间再转化到李群 = 角度
                 acc_avr_skew << SKEW_SYM_MATRIX(acc_avr);
 #ifdef DEBUG_PRINT
 // fout<<head->header.stamp.toSec()<<" "<<angvel_avr.transpose()<<" "<<acc_avr.transpose()<<std::endl;
 #endif
 
                 /* propagation of IMU attitude   IMU姿态的传播 */
-                R_imu = R_imu * Exp_f;
+                R_imu = R_imu * Exp_f; //姿态 q
 
                 /* Specific acceleration (global frame) of IMU    IMU的加速度转换到全局坐标系下 减去重力 */
-                acc_imu = R_imu * acc_avr - state_inout.gravity;
+                acc_imu = R_imu * acc_avr - state_inout.gravity; //加速度
 
                 /* propagation of IMU */
-                pos_imu = pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt;
+                pos_imu = pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt; //位置 pos
 
                 /* velocity of IMU */
-                vel_imu = vel_imu + acc_imu * dt;
+                vel_imu = vel_imu + acc_imu * dt; //速度 vel
 
                 /* save the poses at each IMU measurements 保存每个IMU测量的pose */
                 angvel_last = angvel_avr;
                 acc_s_last = acc_imu;
-                double &&offs_t = tail->header.stamp.toSec() - pcl_beg_time;
+                double &&offs_t = tail->header.stamp.toSec() - pcl_beg_time; //下一帧IMU的时间
                 // std::cout<<"acc "<<acc_imu.transpose()<<"vel "<<acc_imu.transpose()<<"vel "<<pos_imu.transpose()<<std::endl;
-                IMU_pose.push_back(set_pose6d(offs_t, acc_imu, angvel_avr, vel_imu, pos_imu, R_imu));
+                IMU_pose.push_back(set_pose6d(offs_t, acc_imu, angvel_avr, vel_imu, pos_imu, R_imu)); // IMU_pose里面保存的是每一次IMU数据相对于第一个IMU数据的时间、加速度、角速度、pvq
         }
 
         /*** calculated the pos and attitude prediction at the frame-end 计算了帧端位置和姿态预测 ***/
-        dt = pcl_end_time - imu_end_time;
-        state_inout.vel_end = vel_imu + acc_imu * dt;
+        dt = pcl_end_time - imu_end_time;             // dt就是雷达当前帧的点云的最后一个点的时间戳与imu的最后一个数据的时间戳之差
+        state_inout.vel_end = vel_imu + acc_imu * dt; //由于IMU测量时间不能超过当前帧点云的最后一个点的时间，需要补全位姿
         state_inout.rot_end = R_imu * Exp(angvel_avr, dt);
         state_inout.pos_end = pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt;
 
-        Eigen::Vector3d pos_liD_e = state_inout.pos_end + state_inout.rot_end * Lidar_offset_to_IMU;
+        Eigen::Vector3d pos_liD_e = state_inout.pos_end + state_inout.rot_end * Lidar_offset_to_IMU; //外参转化到地图坐标系下
         // auto R_liD_e   = state_inout.rot_end * Lidar_R_to_IMU;
 
 #ifdef DEBUG_PRINT
@@ -390,20 +390,20 @@ void ImuProcess::lic_point_cloud_undistort(const MeasureGroup &meas, const State
 #endif
 
         /*** undistort each lidar point (backward propagation)  矫正每个激光雷达点(向后传播) ***/
-        auto it_pcl = pcl_out.points.end() - 1;
-        for (auto it_kp = IMU_pose.end() - 1; it_kp != IMU_pose.begin(); it_kp--)
+        auto it_pcl = pcl_out.points.end() - 1;                                   // it_pcl是当前帧点云的最后一个点
+        for (auto it_kp = IMU_pose.end() - 1; it_kp != IMU_pose.begin(); it_kp--) //从后到前遍历IMU的数据，一个IMU数据要矫正很多个雷达的数据
         {
                 auto head = it_kp - 1;
-                R_imu << MAT_FROM_ARRAY(head->rot);
+                R_imu << MAT_FROM_ARRAY(head->rot); //反对称矩阵
                 acc_imu << VEC_FROM_ARRAY(head->acc);
                 // std::cout<<"head imu acc: "<<acc_imu.transpose()<<std::endl;
                 vel_imu << VEC_FROM_ARRAY(head->vel);
                 pos_imu << VEC_FROM_ARRAY(head->pos);
                 angvel_avr << VEC_FROM_ARRAY(head->gyr);
 
-                for (; it_pcl->curvature / double(1000) > head->offset_time; it_pcl--)
+                for (; it_pcl->curvature / double(1000) > head->offset_time; it_pcl--) //矫正雷达点云的畸变 it_pcl->curvature中存储的是点云每一个点的时间戳
                 {
-                        dt = it_pcl->curvature / double(1000) - head->offset_time;
+                        dt = it_pcl->curvature / double(1000) - head->offset_time; // dt为时间差
 
                         /* Transform to the 'end' frame, using only the rotation 变换到'end'帧，只使用旋转
                          * Note: Compensation direction is INVERSE of Frame's moving direction 补偿方向与框架的运动方向相反
@@ -413,7 +413,7 @@ void ImuProcess::lic_point_cloud_undistort(const MeasureGroup &meas, const State
                         Eigen::Vector3d T_ei(pos_imu + vel_imu * dt + 0.5 * acc_imu * dt * dt + R_i * Lidar_offset_to_IMU - pos_liD_e);
 
                         Eigen::Vector3d P_i(it_pcl->x, it_pcl->y, it_pcl->z);
-                        Eigen::Vector3d P_compensate = state_inout.rot_end.transpose() * (R_i * P_i + T_ei);
+                        Eigen::Vector3d P_compensate = state_inout.rot_end.transpose() * (R_i * P_i + T_ei); //转换到上一帧点云的位姿
 
                         /// save Undistorted points and their rotation
                         it_pcl->x = P_compensate(0);

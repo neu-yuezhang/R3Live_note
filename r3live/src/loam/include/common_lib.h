@@ -57,8 +57,8 @@ static const Eigen::Matrix3d Eye3d(Eigen::Matrix3d::Identity());
 static const Eigen::Matrix3f Eye3f(Eigen::Matrix3f::Identity());
 static const Eigen::Vector3d Zero3d(0, 0, 0);
 static const Eigen::Vector3f Zero3f(0, 0, 0);
-// Eigen::Vector3d Lidar_offset_to_IMU(0.05512, 0.02226, 0.0297); // Horizon
-static const Eigen::Vector3d Lidar_offset_to_IMU(0.04165, 0.02326, -0.0284); // Avia
+static const Eigen::Vector3d Lidar_offset_to_IMU(0.05512, 0.02226, 0.0297); // Horizon
+// static const Eigen::Vector3d Lidar_offset_to_IMU(0.04165, 0.02326, -0.0284); // Avia
 
 struct Pose6D
 {
@@ -94,7 +94,7 @@ T cot(const T theta)
 template <typename T = double>
 inline Eigen::Matrix<T, 3, 3> right_jacobian_of_rotion_matrix(const Eigen::Matrix<T, 3, 1> &omega)
 {
-        //Barfoot, Timothy D, State estimation for robotics. Page 232-237
+        // Barfoot, Timothy D, State estimation for robotics. Page 232-237
         Eigen::Matrix<T, 3, 3> res_mat_33;
 
         T theta = omega.norm();
@@ -111,7 +111,7 @@ inline Eigen::Matrix<T, 3, 3> right_jacobian_of_rotion_matrix(const Eigen::Matri
 template <typename T = double>
 Eigen::Matrix<T, 3, 3> inverse_right_jacobian_of_rotion_matrix(const Eigen::Matrix<T, 3, 1> &omega)
 {
-        //Barfoot, Timothy D, State estimation for robotics. Page 232-237
+        // Barfoot, Timothy D, State estimation for robotics. Page 232-237
         Eigen::Matrix<T, 3, 3> res_mat_33;
 
         T theta = omega.norm();
@@ -125,6 +125,7 @@ Eigen::Matrix<T, 3, 3> inverse_right_jacobian_of_rotion_matrix(const Eigen::Matr
         return res_mat_33;
 }
 
+/*主要保存lidar队列以及imu、激光、相机的时间戳等信息 */
 struct Camera_Lidar_queue
 {
         double m_first_imu_time = -3e88;
@@ -149,7 +150,7 @@ struct Camera_Lidar_queue
         int m_if_dump_log = 1;
 
         // std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> *m_camera_frame_buf = nullptr;
-        std::deque<sensor_msgs::PointCloud2::ConstPtr> *m_liar_frame_buf = nullptr;
+        std::deque<sensor_msgs::PointCloud2::ConstPtr> *m_liar_frame_buf = nullptr; //是保存lidar的msg的队列
 
         double time_wrt_first_imu_time(double &time)
         {
@@ -170,7 +171,7 @@ struct Camera_Lidar_queue
                         m_first_imu_time = in_time;
                 }
                 m_last_imu_time = std::max(in_time, m_last_imu_time);
-                //m_last_imu_time = in_time;
+                // m_last_imu_time = in_time;
                 return m_last_imu_time;
         }
 
@@ -218,7 +219,7 @@ struct Camera_Lidar_queue
         {
                 return m_last_visual_time + m_camera_imu_td;
         }
-
+        // bool if_camera_can_process() bool if_lidar_can_process()帮助控制激光和imu的处理顺序
         bool if_camera_can_process()
         {
                 m_if_have_camera_data = 1;
@@ -290,7 +291,9 @@ struct Camera_Lidar_queue
         }
 };
 
-struct MeasureGroup // Lidar data and imu dates for the curent process 激光雷达数据和imu数据
+// Lidar data and imu dates for the curent process
+//激光雷达数据和imu数据，将一帧lidar以及对应的若干imu数据一起打包，用于LIO的状态估计
+struct MeasureGroup
 {
         MeasureGroup()
         {
@@ -308,20 +311,20 @@ struct StatesGroup
 public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-        Eigen::Matrix3d rot_end; // [0-2] the estimated attitude (rotation matrix) at the end lidar point
-        Eigen::Vector3d pos_end; // [3-5] the estimated position at the end lidar point (world frame)
-        Eigen::Vector3d vel_end; // [6-8] the estimated velocity at the end lidar point (world frame)
+        Eigen::Matrix3d rot_end; // [0-2] the estimated attitude (rotation matrix) at the end lidar point 激光雷达端点的估计姿态(旋转矩阵)
+        Eigen::Vector3d pos_end; // [3-5] the estimated position at the end lidar point (world frame) 激光雷达终点的估计位置(世界帧)
+        Eigen::Vector3d vel_end; // [6-8] the estimated velocity at the end lidar point (world frame) 激光雷达终点的估计速度(世界帧)
         Eigen::Vector3d bias_g;  // [9-11] gyroscope bias
         Eigen::Vector3d bias_a;  // [12-14] accelerator bias
-        Eigen::Vector3d gravity; // [15-17] the estimated gravity acceleration
+        Eigen::Vector3d gravity; // [15-17] the estimated gravity acceleration 估计的重力加速度
 
-        Eigen::Matrix3d rot_ext_i2c;                             // [18-20] Extrinsic between IMU frame to Camera frame on rotation.
-        Eigen::Vector3d pos_ext_i2c;                             // [21-23] Extrinsic between IMU frame to Camera frame on position.
+        Eigen::Matrix3d rot_ext_i2c;                             // [18-20] Extrinsic between IMU frame to Camera frame on rotation. IMU帧与摄像机帧之间的外部旋转
+        Eigen::Vector3d pos_ext_i2c;                             // [21-23] Extrinsic between IMU frame to Camera frame on position. IMU帧与摄像机帧之间的外部位置
         double td_ext_i2c_delta;                                 // [24]    Extrinsic between IMU frame to Camera frame on position.
-        vec_4 cam_intrinsic;                                     // [25-28] Intrinsice of camera [fx, fy, cx, cy]
-        Eigen::Matrix<double, DIM_OF_STATES, DIM_OF_STATES> cov; // states covariance
+        vec_4 cam_intrinsic;                                     // [25-28] Intrinsice of camera [fx, fy, cx, cy] 相机内参
+        Eigen::Matrix<double, DIM_OF_STATES, DIM_OF_STATES> cov; // states covariance 状态协方差
         double last_update_time = 0;
-        double td_ext_i2c;
+        double td_ext_i2c; // time
         StatesGroup()
         {
                 rot_end = Eigen::Matrix3d::Identity();
@@ -332,7 +335,7 @@ public:
                 gravity = Eigen::Vector3d(0.0, 0.0, 9.805);
                 // gravity = Eigen::Vector3d(0.0, 9.805, 0.0);
 
-                //Ext camera w.r.t. IMU
+                // Ext camera w.r.t. IMU
                 rot_ext_i2c = Eigen::Matrix3d::Identity();
                 pos_ext_i2c = vec_3::Zero();
 
@@ -361,7 +364,7 @@ public:
                 a.cov = this->cov;
                 a.last_update_time = this->last_update_time;
 #if ENABLE_CAMERA_OBS
-                //Ext camera w.r.t. IMU
+                // Ext camera w.r.t. IMU
                 a.rot_ext_i2c = this->rot_ext_i2c * Exp(state_add(18), state_add(19), state_add(20));
                 a.pos_ext_i2c = this->pos_ext_i2c + state_add.block<3, 1>(21, 0);
                 a.td_ext_i2c_delta = this->td_ext_i2c_delta + state_add(24);
@@ -381,7 +384,7 @@ public:
                 this->gravity += state_add.block<3, 1>(15, 0);
 #endif
 #if ENABLE_CAMERA_OBS
-                //Ext camera w.r.t. IMU
+                // Ext camera w.r.t. IMU
                 this->rot_ext_i2c = this->rot_ext_i2c * Exp(state_add(18), state_add(19), state_add(20));
                 this->pos_ext_i2c = this->pos_ext_i2c + state_add.block<3, 1>(21, 0);
                 this->td_ext_i2c_delta = this->td_ext_i2c_delta + state_add(24);
@@ -402,7 +405,7 @@ public:
                 a.block<3, 1>(15, 0) = this->gravity - b.gravity;
 
 #if ENABLE_CAMERA_OBS
-                //Ext camera w.r.t. IMU
+                // Ext camera w.r.t. IMU
                 Eigen::Matrix3d rotd_ext_i2c(b.rot_ext_i2c.transpose() * this->rot_ext_i2c);
                 a.block<3, 1>(18, 0) = SO3_LOG(rotd_ext_i2c);
                 a.block<3, 1>(21, 0) = this->pos_ext_i2c - b.pos_ext_i2c;

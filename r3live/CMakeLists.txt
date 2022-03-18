@@ -86,6 +86,7 @@ message(STATUS "===== OpenCV ersion: ${OpenCV_VERSION}  =====")
 message(STATUS "===== OpenCV libraries: ${OpenCV_LIBS} =====")
 message(STATUS "===== OpenCV include path: ${OpenCV_INCLUDE_DIRS} =====")
 
+
 add_executable(r3live_LiDAR_front_end src/loam/LiDAR_front_end.cpp)
 target_link_libraries(r3live_LiDAR_front_end ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 if(Ceres_FOUND)

@@ -97,6 +97,9 @@ Dr. Fu Zhang < fuzhang@hku.hk >.
 #include "image_frame.hpp"
 #include "pointcloud_rgbd.hpp"
 #include "rgbmap_tracker.hpp"
+#include <pcl/sample_consensus/ransac.h>
+#include <pcl/sample_consensus/sac_model_plane.h>
+//#include "pcl_utils.hpp"
 
 #define THREAD_SLEEP_TIM 1
 
@@ -139,7 +142,7 @@ public:
         double m_planar_check_dis = 0.05;
         double m_lidar_imu_time_delay = 0;
         double m_long_rang_pt_dis = 500.0;
-        bool m_if_publish_feature_map = false;
+        bool m_if_publish_feature_map = true;
         int iterCount = 0;
         int NUM_MAX_ITERATIONS = 0;
         int FOV_RANGE = 4; // range of FOV = FOV_RANGE * cube_len
@@ -189,7 +192,10 @@ public:
 
         std::vector<BoxPointType> cub_needrm;
         std::vector<BoxPointType> cub_needad;
-
+        // cube: 立方体
+        /*以cube为单位保存点云PointCloudXYZINormal::Ptr，目前设置为最多保存48*48*48个cube。
+        主要作用是配合ikdtree，保存local map范围内的点云，
+        在lasermap_fov_segment()中当位姿超过FOV设置的边界时会移动local map并从ikdtree删除范围外的cube*/
         PointCloudXYZINormal::Ptr featsArray[laserCloudNum];
         bool _last_inFOV[laserCloudNum];
         bool now_inFOV[laserCloudNum];
@@ -199,7 +205,7 @@ public:
 
         KD_TREE ikdtree;
 
-        ros::Publisher pub_distortion;
+        ros::Publisher pub_ground;
         ros::Publisher pubLaserCloudFullRes;
         ros::Publisher pubLaserCloudEffect;
         ros::Publisher pubLaserCloudMap;
@@ -235,7 +241,7 @@ public:
         std::mutex m_camera_data_mutex;
         double m_camera_start_ros_tim = -3e8;
         std::deque<sensor_msgs::ImageConstPtr> m_queue_image_msg;
-        std::deque<std::shared_ptr<Image_frame>> m_queue_image_with_pose;
+        std::deque<std::shared_ptr<Image_frame>> m_queue_image_with_pose; //保存等待vio处理的图像队列
         std::list<std::shared_ptr<Image_frame>> g_image_vec;
         Eigen::Matrix3d g_cam_K;
         Eigen::Matrix<double, 5, 1> g_cam_dist;
@@ -317,8 +323,8 @@ public:
 
         R3LIVE()
         {
-                pub_distortion = n.advertise<sensor_msgs::PointCloud2>("/laser_cloud_distortion", 100);
-                
+                pub_ground = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>("/laser_cloud_ground", 100);
+
                 pubLaserCloudFullRes = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>("/cloud_registered", 100);
                 pubLaserCloudEffect = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>("/cloud_effected", 100);
                 pubLaserCloudMap = m_ros_node_handle.advertise<sensor_msgs::PointCloud2>("/Laser_map", 100);
@@ -453,4 +459,5 @@ public:
         int service_LIO_update();
         void publish_render_pts(ros::Publisher &pts_pub, Global_map &m_map_rgb_pts);
         void print_dash_board();
+        Eigen::VectorXf get_plane_coeffs(pcl::PointCloud<PointType>::Ptr lidar_cloud, double x, double y, double z);
 };

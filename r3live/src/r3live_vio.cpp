@@ -60,7 +60,7 @@ std::string append_space_to_bits(std::string &in_str, int bits)
 }
 void R3LIVE::print_dash_board()
 {
-        int mem_used_mb = (int)(Common_tools::get_RSS_Mb());
+        /*int mem_used_mb = (int)(Common_tools::get_RSS_Mb());
         // clang-format off
     if( (mem_used_mb - g_last_stamped_mem_mb < 1024 ) && g_last_stamped_mem_mb != 0 )
     {
@@ -101,7 +101,7 @@ void R3LIVE::print_dash_board()
 
         cout << out_str_line_1 << endl;
         cout << out_str_line_2 << ANSI_COLOR_RESET << "          ";
-        ANSI_SCREEN_FLUSH;
+        ANSI_SCREEN_FLUSH;*/
 }
 
 void R3LIVE::set_initial_state_cov(StatesGroup &state)
@@ -208,7 +208,7 @@ void R3LIVE::publish_raw_img(cv::Mat &img)
 int sub_image_typed = 0; // 0: TBD 1: sub_raw, 2: sub_comp
 std::mutex mutex_image_callback;
 
-std::deque<sensor_msgs::CompressedImageConstPtr> g_received_compressed_img_msg;
+std::deque<sensor_msgs::CompressedImageConstPtr> g_received_compressed_img_msg; //保存图像msg的队列
 std::deque<sensor_msgs::ImageConstPtr> g_received_img_msg;
 std::shared_ptr<std::thread> g_thr_process_image;
 
@@ -216,7 +216,8 @@ void R3LIVE::service_process_img_buffer()
 {
         while (1)
         {
-                // To avoid uncompress so much image buffer, reducing the use of memory.
+                // cout << "在2" << endl;
+                //  To avoid uncompress so much image buffer, reducing the use of memory.
                 //避免解压缩如此多的图像缓冲区，减少内存的使用。
                 if (m_queue_image_with_pose.size() > 4)
                 {
@@ -291,7 +292,8 @@ void R3LIVE::image_comp_callback(const sensor_msgs::CompressedImageConstPtr &msg
                 if (g_flag_if_first_rec_img)
                 {
                         g_flag_if_first_rec_img = 0;
-                        m_thread_pool_ptr->commit_task(&R3LIVE::service_process_img_buffer, this);
+                        // cout << "在这" << endl;
+                        m_thread_pool_ptr->commit_task(&R3LIVE::service_process_img_buffer, this); //进入处理vio的循环
                 }
                 return;
         }
@@ -330,6 +332,7 @@ int buffer_max_frame = 0;
 int total_frame_count = 0;
 void R3LIVE::process_image(cv::Mat &temp_img, double msg_time)
 {
+        // cout << "处理图像" << endl;
         cv::Mat img_get;
         if (temp_img.rows == 0)
         {
@@ -349,16 +352,21 @@ void R3LIVE::process_image(cv::Mat &temp_img, double msg_time)
         }
         last_accept_time = msg_time;
 
-        if (m_camera_start_ros_tim < 0)
+        if (m_camera_start_ros_tim < 0) // VIO初始化
         {
+                // cout << "111111" << endl;
                 m_camera_start_ros_tim = msg_time;
+                /*
+                m_image_downsample_ratio = 1
+                */
                 m_vio_scale_factor = m_vio_image_width * m_image_downsample_ratio / temp_img.cols; // 320 * 24
+                cout << "m_vio_scale_factor:  " << m_vio_scale_factor << endl;
                 // load_vio_parameters();
                 //设置VIO参数
                 set_initial_camera_parameter(g_lio_state, m_camera_intrinsic.data(), m_camera_dist_coeffs.data(), m_camera_ext_R.data(),
                                              m_camera_ext_t.data(), m_vio_scale_factor);
                 cv::eigen2cv(g_cam_K, intrinsic);
-                cv::eigen2cv(g_cam_dist, dist_coeffs);
+                cv::eigen2cv(g_cam_dist, dist_coeffs); // Eigen转化为cv
                 initUndistortRectifyMap(intrinsic, dist_coeffs, cv::Mat(), intrinsic, cv::Size(m_vio_image_width / m_vio_scale_factor, m_vio_image_heigh / m_vio_scale_factor),
                                         CV_16SC2, m_ud_map1, m_ud_map2);
                 m_thread_pool_ptr->commit_task(&R3LIVE::service_pub_rgb_maps, this);
@@ -380,7 +388,7 @@ void R3LIVE::process_image(cv::Mat &temp_img, double msg_time)
         {
                 img_pose->m_raw_img = img_get;
         }
-        cv::remap(img_get, img_pose->m_img, m_ud_map1, m_ud_map2, cv::INTER_LINEAR);
+        cv::remap(img_get, img_pose->m_img, m_ud_map1, m_ud_map2, cv::INTER_LINEAR); //图像畸变矫正 img_get:输入图像；img_pose->m_img 输出图像
         // cv::imshow("sub Img", img_pose->m_img);
         img_pose->m_timestamp = msg_time;
         img_pose->init_cubic_interpolation();
@@ -392,7 +400,7 @@ void R3LIVE::process_image(cv::Mat &temp_img, double msg_time)
 
         if (m_queue_image_with_pose.size() > buffer_max_frame)
         {
-                buffer_max_frame = m_queue_image_with_pose.size();
+                buffer_max_frame = m_queue_image_with_pose.size(); // m_queue_image_with_pose 保存等待vio处理的图像队列
         }
 
         // cout << "Image queue size = " << m_queue_image_with_pose.size() << endl;
@@ -888,9 +896,12 @@ bool R3LIVE::vio_photometric(StatesGroup &state_in, Rgbmap_tracker &op_track, st
                             (H_T_H_spa.toDense() + (state_in.cov * m_cam_measurement_weight).inverse()).inverse().sparseView();
                         Eigen::SparseMatrix<double> Ht_R_inv = (Hsub_T_temp_mat * R_mat_inv_spa);
                         KH_spa = Ht_R_inv * H_mat_spa;
+                        // cout << "Ht_R_inv:  " << Ht_R_inv << endl;
+                        // cout << "H_mat_spa:  " << H_mat_spa << endl;
                         solution =
                             (temp_inv_mat * (Ht_R_inv * ((-1 * meas_vec.sparseView()))) - (I_STATE_spa - temp_inv_mat * KH_spa) * vec_spa).toDense();
                 }
+                // cout << "solution " << solution << endl;
                 state_iter = state_iter + solution;
                 // state_iter.cov = ((I_STATE_spa - KH_spa) * state_iter.cov.sparseView()).toDense();
                 if ((acc_photometric_error / total_pt_size) < 10) // By experience.
@@ -1047,14 +1058,14 @@ void R3LIVE::service_VIO_update()
         // Init cv windows for debug
         op_track.set_intrinsic(g_cam_K, g_cam_dist * 0, cv::Size(m_vio_image_width / m_vio_scale_factor, m_vio_image_heigh / m_vio_scale_factor));
         op_track.m_maximum_vio_tracked_pts = m_maximum_vio_tracked_pts;
-        m_map_rgb_pts.m_minimum_depth_for_projection = m_tracker_minimum_depth;
-        m_map_rgb_pts.m_maximum_depth_for_projection = m_tracker_maximum_depth;
+        m_map_rgb_pts.m_minimum_depth_for_projection = m_tracker_minimum_depth; // m_tracker_minimum_depth 0.1
+        m_map_rgb_pts.m_maximum_depth_for_projection = m_tracker_maximum_depth; // m_tracker_maximum_depth 200
         // cv::imshow("Control panel", generate_control_panel_img().clone());
         Common_tools::Timer tim;
         cv::Mat img_get;
         while (ros::ok())
         {
-                cv_keyboard_callback();
+                // cv_keyboard_callback();
                 while (g_camera_lidar_queue.m_if_have_lidar_data == 0)
                 {
                         ros::spinOnce();
@@ -1062,7 +1073,7 @@ void R3LIVE::service_VIO_update()
                         std::this_thread::yield();
                         continue;
                 }
-
+                // cout << "111" << endl;
                 if (m_queue_image_with_pose.size() == 0)
                 {
                         ros::spinOnce();
@@ -1071,17 +1082,19 @@ void R3LIVE::service_VIO_update()
                         continue;
                 }
                 m_camera_data_mutex.lock();
-                while (m_queue_image_with_pose.size() > m_maximum_image_buffer)
+                // cout << m_queue_image_with_pose.size()  << endl;
+                while (m_queue_image_with_pose.size() > m_maximum_image_buffer) // m_maximum_image_buffer = 20000
                 {
+                        // cout << "进入循环 " << endl;
                         cout << ANSI_COLOR_BLUE_BOLD << "=== Pop image! current queue size = " << m_queue_image_with_pose.size() << " ===" << ANSI_COLOR_RESET
                              << endl;
                         op_track.track_img(m_queue_image_with_pose.front(), -20); //光流跟踪，跟踪结果也放在缓冲区里的img_pose
-                        m_queue_image_with_pose.pop_front(); //从容器中删除/弹出第一个元素
+                        m_queue_image_with_pose.pop_front();                      //从容器中删除/弹出第一个元素
                 }
 
                 std::shared_ptr<Image_frame> img_pose = m_queue_image_with_pose.front(); //第一个元素
                 double message_time = img_pose->m_timestamp;
-                m_queue_image_with_pose.pop_front();
+                m_queue_image_with_pose.pop_front(); //从容器中删除/弹出第一个元素
                 m_camera_data_mutex.unlock();
                 g_camera_lidar_queue.m_last_visual_time = img_pose->m_timestamp + g_lio_state.td_ext_i2c;
 
@@ -1121,14 +1134,14 @@ void R3LIVE::service_VIO_update()
                 StatesGroup state_out;
                 m_cam_measurement_weight = std::max(0.001, std::min(5.0 / m_number_of_new_visited_voxel, 0.01));
                 //处理IMU缓冲区里的数据
-                if (vio_preintegration(g_lio_state, state_out, img_pose->m_timestamp + g_lio_state.td_ext_i2c) == false)
+                if (vio_preintegration(g_lio_state, state_out, img_pose->m_timestamp + g_lio_state.td_ext_i2c) == false) //预积分
                 {
                         m_mutex_lio_process.unlock();
                         continue;
                 }
-                set_image_pose(img_pose, state_out);
+                set_image_pose(img_pose, state_out); //设置由IMU预积分得到的位姿初始值
 
-                op_track.track_img(img_pose, -20);
+                op_track.track_img(img_pose, -20); //跟踪特征点。在特征点跟踪时会先用RANSAC求基础矩阵过滤误匹配
                 g_cost_time_logger.record(tim, "Track_img");
                 // cout << "Track_img cost " << tim.toc( "Track_img" ) << endl;
                 tim.tic("Ransac");
@@ -1143,11 +1156,11 @@ void R3LIVE::service_VIO_update()
                 tim.tic("Vio_f2f");
                 bool res_esikf = true, res_photometric = true;
                 wait_render_thread_finish();
-                //std::cout << "更新前" << state_out.pos_end << endl;
+                // std::cout << "更新前" << state_out.pos_end << endl;
                 res_esikf = vio_esikf(state_out, op_track);
                 g_cost_time_logger.record(tim, "Vio_f2f");
                 tim.tic("Vio_f2m");
-                //std::cout << "更新后" << state_out.pos_end << endl;
+                // std::cout << "更新后" << state_out.pos_end << endl;
                 res_photometric = vio_photometric(state_out, op_track, img_pose);
 
                 g_cost_time_logger.record(tim, "Vio_f2m");
@@ -1155,7 +1168,7 @@ void R3LIVE::service_VIO_update()
                 // g_lio_state.pos_end(2) = 0.1;
                 // cout << "偏置为：" << g_lio_state.bias_a << "  " << "z轴：" << g_lio_state.pos_end(2) << endl;
                 // print_dash_board();
-                set_image_pose(img_pose, state_out);
+                set_image_pose(img_pose, state_out); //用状态预测结果作为这帧图像的初始位姿
 
                 if (1)
                 {
@@ -1166,6 +1179,7 @@ void R3LIVE::service_VIO_update()
                                 m_map_rgb_pts.m_if_get_all_pts_in_boxes_using_mp = 0;
                                 // m_map_rgb_pts.render_pts_in_voxels_mp(img_pose, &m_map_rgb_pts.m_rgb_pts_in_recent_visited_voxels,
                                 // img_pose->m_timestamp);
+                                /*申请一个线程，在该函数中并行地将点云地图的active点投影到图像上，用对应的像素对地图点rgb的均值和方差用贝叶斯迭代进行更新*/
                                 m_render_thread = std::make_shared<std::shared_future<void>>(m_thread_pool_ptr->commit_task(
                                     render_pts_in_voxels_mp, img_pose, &m_map_rgb_pts.m_voxels_recent_visited, img_pose->m_timestamp));
                         }
@@ -1190,6 +1204,8 @@ void R3LIVE::service_VIO_update()
                 dump_lio_state_to_log(m_lio_state_fp);
                 m_mutex_lio_process.unlock();
                 // cout << "Solve image pose cost " << tim.toc("Solve_pose") << endl;
+                /*更新m_img_for_projection的位姿和id，以触发refresh线程Global_map::service_refresh_pts_for_projection()
+                将点云的active点投影到2D（方便后面新增跟踪点）*/
                 m_map_rgb_pts.update_pose_for_projection(img_pose, -0.4);
                 op_track.update_and_append_track_pts(img_pose, m_map_rgb_pts, m_track_windows_size / m_vio_scale_factor, 1000000);
                 g_cost_time_logger.record(tim, "Frame");

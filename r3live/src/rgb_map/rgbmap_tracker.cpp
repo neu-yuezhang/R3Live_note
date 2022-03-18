@@ -232,12 +232,12 @@ void Rgbmap_tracker::reject_error_tracking_pts(std::shared_ptr<Image_frame> &img
 void Rgbmap_tracker::track_img(std::shared_ptr<Image_frame> &img_pose, double dis, int if_use_opencv)
 {
         Common_tools::Timer tim;
-        m_current_frame = img_pose->m_img;
-        m_current_frame_time = img_pose->m_timestamp;
+        m_current_frame = img_pose->m_img;            //当前的img图像
+        m_current_frame_time = img_pose->m_timestamp; //当前的img图像的时间戳
         m_map_rgb_pts_in_current_frame_pos.clear();
         if (m_current_frame.empty())
                 return;
-        cv::Mat frame_gray = img_pose->m_img_gray;
+        cv::Mat frame_gray = img_pose->m_img_gray; //当前图像的灰度图像
         tim.tic("HE");
         tim.tic("opTrack");
         std::vector<uchar> status;
@@ -251,13 +251,15 @@ void Rgbmap_tracker::track_img(std::shared_ptr<Image_frame> &img_pose, double di
         }
 
         //光流跟踪的接口
+        // m_last_tracked_pts：上一帧跟踪到的特征点
+        // m_current_tracked_pts：当前帧跟踪到的特征点
         m_lk_optical_flow_kernel->track_image(frame_gray, m_last_tracked_pts, m_current_tracked_pts, status, 2);
         reduce_vector(m_last_tracked_pts, status);
         reduce_vector(m_old_ids, status);
         reduce_vector(m_current_tracked_pts, status);
 
         int after_track = m_last_tracked_pts.size();
-        cv::Mat mat_F;
+        cv::Mat mat_F; //  F矩阵：基础矩阵
 
         tim.tic("Reject_F");
         unsigned int pts_before_F = m_last_tracked_pts.size();
@@ -327,13 +329,15 @@ int Rgbmap_tracker::remove_outlier_using_ransac_pnp(std::shared_ptr<Image_frame>
         std::vector<cv::Point3f> pt_3d_vec, pt_3d_vec_selected;
         std::vector<cv::Point2f> pt_2d_vec, pt_2d_vec_selected;
         std::vector<void *> map_ptr_vec;
+        // cout << m_map_rgb_pts_in_current_frame_pos.size() << endl;
         for (auto it = m_map_rgb_pts_in_current_frame_pos.begin(); it != m_map_rgb_pts_in_current_frame_pos.end(); it++)
         {
                 map_ptr_vec.push_back(it->first);
                 vec_3 pt_3d = ((RGB_pts *)it->first)->get_pos();
-                pt_3d_vec.push_back(cv::Point3f(pt_3d(0), pt_3d(1), pt_3d(2)));
+                pt_3d_vec.push_back(cv::Point3f(pt_3d(0), pt_3d(1), pt_3d(2))); // pt_3d_vec 特征点
                 pt_2d_vec.push_back(it->second);
         }
+        // cout << "pt_3d_vec.size()    " << pt_3d_vec.size() << endl;
         if (pt_3d_vec.size() < 10)
         {
                 return 0;
@@ -344,7 +348,7 @@ int Rgbmap_tracker::remove_outlier_using_ransac_pnp(std::shared_ptr<Image_frame>
                 try
                 {
                         cv::solvePnPRansac(pt_3d_vec, pt_2d_vec, m_intrinsic, cv::Mat(), r_vec, t_vec, false, 200, 1.5, 0.99,
-                                           status); // SOLVEPNP_ITERATIVE
+                                           status); // SOLVEPNP_ITERATIVE    PNP求解相机位姿
                 }
                 catch (cv::Exception &e)
                 {

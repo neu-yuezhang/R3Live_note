@@ -149,6 +149,7 @@ inline void reduce_vector(std::vector<T> &v, std::vector<uchar> status)
 
 const int MAX_DS_LAY = 7;
 
+/*主要保存时间戳、相机位姿、相机内参，并提供3d点投影到2d等成员函数*/
 struct Image_frame
 {
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
