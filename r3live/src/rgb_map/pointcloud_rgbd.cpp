@@ -156,6 +156,7 @@ void Global_map::set_minmum_dis(double minimum_dis)
         m_minimum_pts_size = minimum_dis;
 }
 
+// Global_map类
 Global_map::Global_map(int if_start_service)
 {
         m_mutex_pts_vec = std::make_shared<std::mutex>();
@@ -192,26 +193,26 @@ void Global_map::service_refresh_pts_for_projection()
 {
         eigen_q last_pose_q = eigen_q::Identity();
         Common_tools::Timer timer;
-        std::shared_ptr<Image_frame> img_for_projection = std::make_shared<Image_frame>();
+        std::shared_ptr<Image_frame> img_for_projection = std::make_shared<Image_frame>(); //指向当前用于渲染的图像
         while (1)
         {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 m_mutex_img_pose_for_projection->lock();
 
-                *img_for_projection = m_img_for_projection;
+                *img_for_projection = m_img_for_projection; //用于渲染的图像
                 m_mutex_img_pose_for_projection->unlock();
-                if (img_for_projection->m_img_cols == 0 || img_for_projection->m_img_rows == 0)
+                if (img_for_projection->m_img_cols == 0 || img_for_projection->m_img_rows == 0) //图像为空就跳过
                 {
                         continue;
                 }
 
-                if (img_for_projection->m_frame_idx == m_updated_frame_index)
+                if (img_for_projection->m_frame_idx == m_updated_frame_index) //没有新的图像就跳过
                 {
                         continue;
                 }
                 timer.tic(" ");
                 std::shared_ptr<std::vector<std::shared_ptr<RGB_pts>>> pts_rgb_vec_for_projection = std::make_shared<std::vector<std::shared_ptr<RGB_pts>>>();
-                if (m_if_get_all_pts_in_boxes_using_mp)
+                if (m_if_get_all_pts_in_boxes_using_mp) //初始化
                 {
                         std::vector<std::shared_ptr<RGB_pts>> pts_in_recent_hitted_boxes;
                         pts_in_recent_hitted_boxes.reserve(1e6);
@@ -225,10 +226,11 @@ void Global_map::service_refresh_pts_for_projection()
                         // m_rgb_pts_in_recent_visited_voxels = pts_in_recent_hitted_boxes;
                         m_mutex_rgb_pts_in_recent_hitted_boxes->unlock();
                 }
+                //将上个scan的点投影到当前相机坐标系下，去掉投影过程中的重复点、遮挡点
                 selection_points_for_projection(img_for_projection, pts_rgb_vec_for_projection.get(), nullptr, 10.0, 1);
                 m_mutex_pts_vec->lock();
-                m_pts_rgb_vec_for_projection = pts_rgb_vec_for_projection;
-                m_updated_frame_index = img_for_projection->m_frame_idx;
+                m_pts_rgb_vec_for_projection = pts_rgb_vec_for_projection; //当前用于投影的点云
+                m_updated_frame_index = img_for_projection->m_frame_idx;   //更新图像id
                 // cout << ANSI_COLOR_MAGENTA_BOLD << "Refresh pts_for_projection size = " << m_pts_rgb_vec_for_projection->size()
                 //      << " | " << m_rgb_pts_vec.size()
                 //      << ", cost time = " << timer.toc() << ANSI_COLOR_RESET << endl;
@@ -273,24 +275,34 @@ bool Global_map::is_busy()
 template int Global_map::append_points_to_global_map<pcl::PointXYZI>(pcl::PointCloud<pcl::PointXYZI> &pc_in, double added_time, std::vector<std::shared_ptr<RGB_pts>> *pts_added_vec, int step);
 template int Global_map::append_points_to_global_map<pcl::PointXYZRGB>(pcl::PointCloud<pcl::PointXYZRGB> &pc_in, double added_time, std::vector<std::shared_ptr<RGB_pts>> *pts_added_vec, int step);
 
+/**
+ * @brief
+ *
+ * @tparam T
+ * @param pc_in 全局坐标系下的当前scan的点
+ * @param added_time 这个点被添加的时间，相对于第一个imu的时间：Measures.lidar_end_time - g_camera_lidar_queue.m_first_imu_time
+ * @param pts_added_vec pc_in落在grid的集合（有重复）
+ * @param step 降采样的步长
+ * @return int 返回这个scan落在了多少box
+ */
 template <typename T>
 int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double added_time, std::vector<std::shared_ptr<RGB_pts>> *pts_added_vec, int step)
 {
         m_in_appending_pts = 1;
         Common_tools::Timer tim;
         tim.tic();
-        int acc = 0;
-        int rej = 0;
+        int acc = 0; //接受的点数（不重复的点）
+        int rej = 0; //拒绝的点数（重复点）
         if (pts_added_vec != nullptr)
         {
                 pts_added_vec->clear();
         }
-        std::unordered_set<std::shared_ptr<RGB_Voxel>> voxels_recent_visited;
-        if (m_recent_visited_voxel_activated_time == 0)
+        std::unordered_set<std::shared_ptr<RGB_Voxel>> voxels_recent_visited; //当前scan的点落在的box集合（会有重复的box）
+        if (m_recent_visited_voxel_activated_time == 0)                       //
         {
                 voxels_recent_visited.clear();
         }
-        else
+        else //没有执行
         {
                 m_mutex_m_box_recent_hitted->lock();
                 voxels_recent_visited = m_voxels_recent_visited;
@@ -311,26 +323,32 @@ int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double ad
         // step = 4;
         for (int pt_idx = 0; pt_idx < pt_size; pt_idx += step)
         {
-                int add = 1;
-                int grid_x = std::round(pc_in.points[pt_idx].x / m_minimum_pts_size);
+                int add = 1; //判断是否是重复点，当是重复点，add = 0
+                //计算grid索引
+                //小于m_minimum_pts_size的点被当做同一个点
+                int grid_x = std::round(pc_in.points[pt_idx].x / m_minimum_pts_size); // std::round()是四舍五入到最近的整数
                 int grid_y = std::round(pc_in.points[pt_idx].y / m_minimum_pts_size);
                 int grid_z = std::round(pc_in.points[pt_idx].z / m_minimum_pts_size);
-                int box_x = std::round(pc_in.points[pt_idx].x / m_voxel_resolution);
+
+                //计算box索引
+                int box_x = std::round(pc_in.points[pt_idx].x / m_voxel_resolution); // m_voxel_resolution体素尺寸
                 int box_y = std::round(pc_in.points[pt_idx].y / m_voxel_resolution);
                 int box_z = std::round(pc_in.points[pt_idx].z / m_voxel_resolution);
-                if (m_hashmap_3d_pts.if_exist(grid_x, grid_y, grid_z))
+                if (m_hashmap_3d_pts.if_exist(grid_x, grid_y, grid_z)) //判断是否已经有这个grid了   如果有这个点
                 {
                         add = 0;
                         if (pts_added_vec != nullptr)
                         {
+                                //之前已经添加过的点的grid集合
                                 pts_added_vec->push_back(m_hashmap_3d_pts.m_map_3d_hash_map[grid_x][grid_y][grid_z]);
                         }
                 }
-                RGB_voxel_ptr box_ptr;
-                if (!m_hashmap_voxels.if_exist(box_x, box_y, box_z))
+                RGB_voxel_ptr box_ptr;                               //该点所在的box
+                if (!m_hashmap_voxels.if_exist(box_x, box_y, box_z)) //判断是否已经有这个box了，没有就加
                 {
                         std::shared_ptr<RGB_Voxel> box_rgb = std::make_shared<RGB_Voxel>();
                         m_hashmap_voxels.insert(box_x, box_y, box_z, box_rgb);
+                        // std::cout << "box_rgb " << box_rgb << endl;
                         box_ptr = box_rgb;
                 }
                 else
@@ -338,29 +356,31 @@ int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double ad
                         box_ptr = m_hashmap_voxels.m_map_3d_hash_map[box_x][box_y][box_z];
                 }
                 voxels_recent_visited.insert(box_ptr);
-                box_ptr->m_last_visited_time = added_time;
-                if (add == 0)
+                box_ptr->m_last_visited_time = added_time; //这个box最近一次被添加的时间
+                if (add == 0)                              //如果是重复的grid，跳过，避免重复
                 {
                         rej++;
                         continue;
                 }
                 acc++;
-                std::shared_ptr<RGB_pts> pt_rgb = std::make_shared<RGB_pts>();
-                pt_rgb->set_pos(vec_3(pc_in.points[pt_idx].x, pc_in.points[pt_idx].y, pc_in.points[pt_idx].z));
-                pt_rgb->m_pt_index = m_rgb_pts_vec.size();
+                std::shared_ptr<RGB_pts> pt_rgb = std::make_shared<RGB_pts>();                                  //构建一个RGB_pts格式的point
+                pt_rgb->set_pos(vec_3(pc_in.points[pt_idx].x, pc_in.points[pt_idx].y, pc_in.points[pt_idx].z)); //设置这个点的xyz位置
+
+                pt_rgb->m_pt_index = m_rgb_pts_vec.size(); //设置这个点的index，因为size总比index多1，可以通过这种方式给新点做索引
                 m_rgb_pts_vec.push_back(pt_rgb);
                 m_hashmap_3d_pts.insert(grid_x, grid_y, grid_z, pt_rgb);
-                box_ptr->add_pt(pt_rgb);
+                box_ptr->add_pt(pt_rgb); //往对应的box中插入点
                 if (pts_added_vec != nullptr)
                 {
+                        // cout << "空的" << endl;
                         pts_added_vec->push_back(pt_rgb);
                 }
         }
-        m_in_appending_pts = 0;
+        m_in_appending_pts = 0; //添加地图点结束
         m_mutex_m_box_recent_hitted->lock();
-        m_voxels_recent_visited = voxels_recent_visited;
+        m_voxels_recent_visited = voxels_recent_visited; //当前scan的点落在的box
         m_mutex_m_box_recent_hitted->unlock();
-        return (m_voxels_recent_visited.size() - number_of_voxels_before_add);
+        return (m_voxels_recent_visited.size() - number_of_voxels_before_add); //返回当前scan落在了多少box里面
 }
 
 void Global_map::render_pts_in_voxels(std::shared_ptr<Image_frame> &img_ptr, std::vector<std::shared_ptr<RGB_pts>> &pts_for_render, double obs_time)
@@ -398,34 +418,48 @@ void Global_map::render_pts_in_voxels(std::shared_ptr<Image_frame> &img_ptr, std
 Common_tools::Cost_time_logger cost_time_logger_render("/home/ziv/temp/render_thr.log");
 
 std::atomic<long> render_pts_count;
+/**
+ * @brief
+ *
+ * @param pt_start 开始的box的idx（voxels_for_render索引）
+ * @param pt_end 结束的box的idx
+ * @param img_ptr 当前图像
+ * @param voxels_for_render 当前scan访问到的box，即需要渲染的（点云体素）box
+ * @param obs_time 当前图像的时间
+ * @return double
+ */
 static inline double thread_render_pts_in_voxel(const int &pt_start, const int &pt_end, const std::shared_ptr<Image_frame> &img_ptr,
                                                 const std::vector<RGB_voxel_ptr> *voxels_for_render, const double obs_time)
 {
-        vec_3 pt_w;
-        vec_3 rgb_color;
-        double u, v;
-        double pt_cam_norm;
+        vec_3 pt_w;         //这个点在世界坐标系下的xyz
+        vec_3 rgb_color;    //这个点的RGB
+        double u, v;        //世界坐标点在图像中的像素坐标
+        double pt_cam_norm; //相机指向点的向量
         Common_tools::Timer tim;
         tim.tic();
+        //开始遍历这个线程负责的box
         for (int voxel_idx = pt_start; voxel_idx < pt_end; voxel_idx++)
         {
                 // continue;
-                RGB_voxel_ptr voxel_ptr = (*voxels_for_render)[voxel_idx];
+                RGB_voxel_ptr voxel_ptr = (*voxels_for_render)[voxel_idx]; //取出box指针
+                //遍历这个box中的点
                 for (int pt_idx = 0; pt_idx < voxel_ptr->m_pts_in_grid.size(); pt_idx++)
                 {
-                        pt_w = voxel_ptr->m_pts_in_grid[pt_idx]->get_pos();
-                        if (img_ptr->project_3d_point_in_this_img(pt_w, u, v, nullptr, 1.0) == false)
+                        pt_w = voxel_ptr->m_pts_in_grid[pt_idx]->get_pos(); //获得这个点在世界坐标系下的xyz
+                        //将3D点投影到图像内染色
+                        if (img_ptr->project_3d_point_in_this_img(pt_w, u, v, nullptr, 1.0) == false) //点不在图像内或者深度值太小，则跳过
                         {
                                 continue;
                         }
+                        //相机到点的距离
                         pt_cam_norm = (pt_w - img_ptr->m_pose_w2c_t).norm();
                         // double gray = img_ptr->get_grey_color(u, v, 0);
                         // pts_for_render[i]->update_gray(gray, pt_cam_norm);
-                        rgb_color = img_ptr->get_rgb(u, v, 0);
+                        rgb_color = img_ptr->get_rgb(u, v, 0); //这个点的GRB
                         if (voxel_ptr->m_pts_in_grid[pt_idx]->update_rgb(
                                 rgb_color, pt_cam_norm, vec_3(image_obs_cov, image_obs_cov, image_obs_cov), obs_time))
                         {
-                                render_pts_count++;
+                                render_pts_count++; //总共渲染的点的数量++
                         }
                 }
         }
@@ -434,21 +468,32 @@ static inline double thread_render_pts_in_voxel(const int &pt_start, const int &
 }
 
 std::vector<RGB_voxel_ptr> g_voxel_for_render;
+/**
+ * @brief 点云渲染线程
+ *
+ * @param img_ptr 当前图像
+ * @param pts_for_render 当前scan访问到的box，即需要渲染的（点云体素）box
+ * @param obs_time 当前图像的时间
+ */
+// img_pose, &m_map_rgb_pts.m_voxels_recent_visited, img_pose->m_timestamp)
 void render_pts_in_voxels_mp(std::shared_ptr<Image_frame> &img_ptr, std::unordered_set<RGB_voxel_ptr> *_voxels_for_render, const double &obs_time)
 {
         Common_tools::Timer tim;
         g_voxel_for_render.clear();
+        //遍历box
         for (Voxel_set_iterator it = (*_voxels_for_render).begin(); it != (*_voxels_for_render).end(); it++)
         {
                 g_voxel_for_render.push_back(*it);
         }
         std::vector<std::future<double>> results;
         tim.tic("Render_mp");
-        int numbers_of_voxels = g_voxel_for_render.size();
+        int numbers_of_voxels = g_voxel_for_render.size(); //需要渲染的box数量
         g_cost_time_logger.record("Pts_num", numbers_of_voxels);
         render_pts_count = 0;
-        if (USING_OPENCV_TBB)
+        if (USING_OPENCV_TBB) // if(1)
         {
+                // opencv的并行计算库，会并行计算thread_render_pts_in_voxel函数numbers_of_voxels次
+                //相当于for，从0到numbers_of_voxels，并行计算
                 cv::parallel_for_(cv::Range(0, numbers_of_voxels), [&](const cv::Range &r)
                                   { thread_render_pts_in_voxel(r.start, r.end, img_ptr, &g_voxel_for_render, obs_time); });
         }
@@ -497,6 +542,16 @@ void Global_map::render_with_a_image(std::shared_ptr<Image_frame> &img_ptr, int 
         render_pts_in_voxels(img_ptr, pts_for_render);
 }
 
+/**
+ * @brief 将上个scan的点投影到当前坐标系下，去掉投影过程中的重复点、遮挡点
+ *
+ * @param image_pose 当前相机帧位姿
+ * @param pc_out_vec 上个scan通过相机投影去掉重复后的点
+ * @param pc_2d_out_vec 上个scan通过相机投影到当前帧中的像素坐标
+ * @param minimum_dis 像素间的最小距离，小于这个距离当做同一个像素
+ * @param skip_step 降采样率
+ * @param use_all_pts
+ */
 void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &image_pose, std::vector<std::shared_ptr<RGB_pts>> *pc_out_vec,
                                                  std::vector<cv::Point2f> *pc_2d_out_vec, double minimum_dis,
                                                  int skip_step,
@@ -512,7 +567,9 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
         {
                 pc_2d_out_vec->clear();
         }
-        Hash_map_2d<int, int> mask_index;
+
+        //定义两个哈希表，一个存像素，一个存深度
+        Hash_map_2d<int, int> mask_index; //一个scan的hashmap，防止重复添加
         Hash_map_2d<int, float> mask_depth;
 
         std::map<int, cv::Point2f> map_idx_draw_center;
@@ -521,21 +578,32 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
         int u, v;
         double u_f, v_f;
         // cv::namedWindow("Mask", cv::WINDOW_FREERATIO);
-        int acc = 0;
-        int blk_rej = 0;
+        int acc = 0;     //接收点
+        int blk_rej = 0; //拒绝点
         // int pts_size = m_rgb_pts_vec.size();
-        std::vector<std::shared_ptr<RGB_pts>> pts_for_projection;
+        std::vector<std::shared_ptr<RGB_pts>> pts_for_projection; //需要投影的点（上一帧scan的点）
         m_mutex_m_box_recent_hitted->lock();
-        std::unordered_set<std::shared_ptr<RGB_Voxel>> boxes_recent_hitted = m_voxels_recent_visited; // unordered_set内部实现是基于哈希表
+
+        // unordered_set内部实现是基于哈希表
+        //获取最近被访问过的体素，即最近添加至全局地图中的体素
+        //这些点大概率是图像和lidar同时看到的点，因此可以用于投影至图像上得到像素点
+        std::unordered_set<std::shared_ptr<RGB_Voxel>> boxes_recent_hitted = m_voxels_recent_visited; //上一帧scan落在的box集合
         m_mutex_m_box_recent_hitted->unlock();
-        if ((!use_all_pts) && boxes_recent_hitted.size())
+        /**
+         * @brief 把最近访问过的体素提取出来，准备投影
+         *
+         */
+        if ((!use_all_pts) && boxes_recent_hitted.size()) //每个box只取一个点
         {
                 m_mutex_rgb_pts_in_recent_hitted_boxes->lock();
 
+                //对体素进行遍历
                 for (Voxel_set_iterator it = boxes_recent_hitted.begin(); it != boxes_recent_hitted.end(); it++)
                 {
                         // pts_for_projection.push_back( (*it)->m_pts_in_grid.back() );
-                        if ((*it)->m_pts_in_grid.size())
+                        //如果体素内有地图点，则添加一个地图点进去
+                        //如果体素内有多个地图点也只加一个
+                        if ((*it)->m_pts_in_grid.size()) //每个box只取最后一个点
                         {
                                 pts_for_projection.push_back((*it)->m_pts_in_grid.back());
                                 // pts_for_projection.push_back( ( *it )->m_pts_in_grid[ 0 ] );
@@ -545,14 +613,23 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
 
                 m_mutex_rgb_pts_in_recent_hitted_boxes->unlock();
         }
-        else
+        else //用box中全部的点
         {
                 pts_for_projection = m_rgb_pts_vec;
         }
+
+        /**
+         * @brief 将空间点投影到图像上，获取图像二维点，这些点后面用来光流跟踪
+         *
+         */
         int pts_size = pts_for_projection.size();
+        //遍历每一个需要投影的点
         for (int pt_idx = 0; pt_idx < pts_size; pt_idx += skip_step)
         {
+                //地图点的3D坐标取出来
                 vec_3 pt = pts_for_projection[pt_idx]->get_pos();
+
+                //地图点到相机的深度需满足最大与最小阈值
                 double depth = (pt - image_pose->m_pose_w2c_t).norm();
                 if (depth > m_maximum_depth_for_projection)
                 {
@@ -562,17 +639,25 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
                 {
                         continue;
                 }
+
+                //将3D点投影到图像内染色，并进行深度值检验
                 bool res = image_pose->project_3d_point_in_this_img(pt, u_f, v_f, nullptr, 1.0);
                 if (res == false)
                 {
                         continue;
                 }
+
+                //像素坐标取整
+                //最小的像素值为50，防止取到边缘处的点
                 u = std::round(u_f / minimum_dis) * minimum_dis; // Why can not work
-                v = std::round(v_f / minimum_dis) * minimum_dis;
+                v = std::round(v_f / minimum_dis) * minimum_dis; //图像边缘的点就不要
+
+                //条件1：这个像素还没被注册
+                //条件2：本次投影的该像素的深度值小于历史存储的
                 if ((!mask_depth.if_exist(u, v)) || mask_depth.m_map_2d_hash_map[u][v] > depth)
                 {
                         acc++;
-                        if (mask_index.if_exist(u, v))
+                        if (mask_index.if_exist(u, v)) //如果已经存在，把旧的点删掉（相当于只存更近的点），远处误差更大
                         {
                                 // erase old point
                                 int old_idx = mask_index.m_map_2d_hash_map[u][v];
@@ -580,6 +665,8 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
                                 map_idx_draw_center.erase(map_idx_draw_center.find(old_idx));
                                 map_idx_draw_center_raw_pose.erase(map_idx_draw_center_raw_pose.find(old_idx));
                         }
+
+                        //赋新值   存储的索引与对应的深度值
                         mask_index.m_map_2d_hash_map[u][v] = (int)pt_idx;
                         mask_depth.m_map_2d_hash_map[u][v] = (float)depth;
                         map_idx_draw_center[pt_idx] = cv::Point2f(v, u);
@@ -589,6 +676,7 @@ void Global_map::selection_points_for_projection(std::shared_ptr<Image_frame> &i
 
         if (pc_out_vec != nullptr)
         {
+                //把符合条件的点丢进去
                 for (auto it = map_idx_draw_center.begin(); it != map_idx_draw_center.end(); it++)
                 {
                         // pc_out_vec->push_back(m_rgb_pts_vec[it->first]);

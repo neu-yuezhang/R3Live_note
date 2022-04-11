@@ -78,7 +78,7 @@ public:
         unsigned int m_maximum_vio_tracked_pts = 300;
         cv::Mat m_ud_map1, m_ud_map2;
         cv::Mat m_intrinsic, m_dist_coeffs;
-        std::vector<cv::Point2f> m_last_tracked_pts, m_current_tracked_pts;
+        std::vector<cv::Point2f> m_last_tracked_pts, m_current_tracked_pts; //光流跟踪的特征点
         std::vector<cv::Scalar> m_colors;
         std::vector<void *> m_rgb_pts_ptr_vec_in_last_frame;
         std::map<void *, cv::Point2f> m_map_rgb_pts_in_last_frame_pos;
@@ -104,14 +104,14 @@ public:
         void update_last_tracking_vector_and_ids() //更新跟踪的特征点
         {
                 int idx = 0;
-                m_last_tracked_pts.clear();
+                m_last_tracked_pts.clear(); //清除上一帧的特征点
                 m_rgb_pts_ptr_vec_in_last_frame.clear();
                 m_colors.clear();
                 m_old_ids.clear();
                 for (auto it = m_map_rgb_pts_in_last_frame_pos.begin(); it != m_map_rgb_pts_in_last_frame_pos.end(); it++)
                 {
                         m_rgb_pts_ptr_vec_in_last_frame.push_back(it->first);
-                        m_last_tracked_pts.push_back(it->second);
+                        m_last_tracked_pts.push_back(it->second); //更新特征点
                         m_colors.push_back(((RGB_pts *)it->first)->m_dbg_color);
                         m_old_ids.push_back(idx);
                         idx++;
@@ -120,22 +120,29 @@ public:
 
         void set_track_pts(cv::Mat &img, std::vector<std::shared_ptr<RGB_pts>> &rgb_pts_vec, std::vector<cv::Point2f> &pts_proj_img_vec)
         {
+                //将图像转化为灰度图像
                 m_old_frame = img.clone();
                 cv::cvtColor(m_old_frame, m_old_gray, cv::COLOR_BGR2GRAY);
                 m_map_rgb_pts_in_last_frame_pos.clear();
                 for (unsigned int i = 0; i < rgb_pts_vec.size(); i++)
                 {
+                        //地图点投影的2D像素坐标与3D点的对应关系保存一下
                         m_map_rgb_pts_in_last_frame_pos[(void *)rgb_pts_vec[i].get()] = pts_proj_img_vec[i];
                 }
+                //更新上一次的索引
                 update_last_tracking_vector_and_ids();
         }
 
         void init(const std::shared_ptr<Image_frame> &img_with_pose, std::vector<std::shared_ptr<RGB_pts>> &rgb_pts_vec, std::vector<cv::Point2f> &pts_proj_img_vec)
         {
+                //设置需要跟踪的点及参考帧
                 set_track_pts(img_with_pose->m_img, rgb_pts_vec, pts_proj_img_vec);
+
                 m_current_frame_time = img_with_pose->m_timestamp;
+                //时间戳
                 m_last_frame_time = m_current_frame_time;
                 std::vector<uchar> status;
+                //进行一次光流跟踪
                 m_lk_optical_flow_kernel->track_image(img_with_pose->m_img_gray, m_last_tracked_pts, m_current_tracked_pts, status);
         }
 

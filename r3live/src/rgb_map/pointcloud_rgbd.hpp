@@ -73,9 +73,9 @@ public:
     std::atomic<int> m_N_gray;
     std::atomic<int> m_N_rgb;
 #else
-        double m_pos[3] = {0};
-        double m_rgb[3] = {0};
-        double m_cov_rgb[3] = {0};
+        double m_pos[3] = {0}; //点云地图中点的位置
+        double m_rgb[3] = {0}; //点云地图中点的rgb
+        double m_cov_rgb[3] = {0}; //点云地图中点的协方差
         double m_gray = 0;
         double m_cov_gray = 0;
         int m_N_gray = 0;
@@ -136,7 +136,7 @@ private:
                 ar &m_N_gray;
         }
 };
-using RGB_pt_ptr = std::shared_ptr<RGB_pts>;
+using RGB_pt_ptr = std::shared_ptr<RGB_pts>; //与typedef  std::shared_ptr<RGB_pts>  RGB_pt_ptr等价
 
 class RGB_Voxel
 {
@@ -157,7 +157,7 @@ struct Global_map
         int m_map_major_version = R3LIVE_MAP_MAJOR_VERSION;
         int m_map_minor_version = R3LIVE_MAP_MINOR_VERSION;
         int m_if_get_all_pts_in_boxes_using_mp = 1;
-        std::vector<RGB_pt_ptr> m_rgb_pts_vec;   //vector保存的地图rgb点（指针形式），主要用来可视化的
+        std::vector<RGB_pt_ptr> m_rgb_pts_vec; // vector保存的地图rgb点（指针形式），主要用来可视化的
         // std::vector< RGB_pt_ptr >                    m_rgb_pts_in_recent_visited_voxels;
         std::shared_ptr<std::vector<RGB_pt_ptr>> m_pts_rgb_vec_for_projection = nullptr;
         std::shared_ptr<std::mutex> m_mutex_pts_vec;
@@ -173,9 +173,9 @@ struct Global_map
         std::shared_ptr<std::thread> m_thread_service;
         int m_if_reload_init_voxel_and_hashed_pts = true;
 
-        Hash_map_3d<long, RGB_pt_ptr> m_hashmap_3d_pts;  //hash表保存的rgb点（指针形式），点之间间隔需要大于m_minimum_pts_size，否则不会再加入地图中，主要是用来对地图点云进行降采样。目前设为1cm
-        Hash_map_3d<long, std::shared_ptr<RGB_Voxel>> m_hashmap_voxels; //hash表保存的voxel，每个voxel中包含若干个rgb点（指针形式），分辨率m_voxel_resolution设为10cm
-        std::unordered_set<std::shared_ptr<RGB_Voxel>> m_voxels_recent_visited;  //保存了近期lidar扫描到的voxel（目前设置为仅保存最近一帧扫到的） 
+        Hash_map_3d<long, RGB_pt_ptr> m_hashmap_3d_pts;                         // hash表保存的rgb点（指针形式），点之间间隔需要大于m_minimum_pts_size，否则不会再加入地图中，主要是用来对地图点云进行降采样。目前设为1cm
+        Hash_map_3d<long, std::shared_ptr<RGB_Voxel>> m_hashmap_voxels;         // hash表保存的voxel，每个voxel中包含若干个rgb点（指针形式），分辨率m_voxel_resolution设为10cm
+        std::unordered_set<std::shared_ptr<RGB_Voxel>> m_voxels_recent_visited; //保存了近期lidar扫描到的voxel（目前设置为仅保存最近一帧扫到的）
         std::vector<std::shared_ptr<RGB_pts>> m_pts_last_hitted;
         double m_minimum_pts_size = 0.05; // 5cm minimum distance.
         double m_voxel_resolution = 0.1;

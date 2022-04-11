@@ -14,7 +14,7 @@ r3live_common:
    estimate_intrinsic: 1            # If enable estimate the online intrinsic calibration of the camera lens. [default = 1] 
    maximum_vio_tracked_pts: 600     # The maximum points for tracking. [default = 600]
    append_global_map_point_step: 4  # The point step of append point to global map. [default = 4]
-
+   
 r3live_vio:
    camera_intrinsic:
       [529.405, 0.0, 638.88,
@@ -22,11 +22,12 @@ r3live_vio:
       0.0, 0.0, 1.0 ] 
    camera_dist_coeffs: [-0.0442733, 0.0128019, 0.000105401, 6.05083e-05, -0.00562409]  #k1, k2, p1, p2, k3
    # Fine extrinsic value. form camera-LiDAR calibration.
+
    camera_ext_R:
-         [0.025135, -0.037149, 0.998993,
-            -0.999675,  -0.005360, -0.00113994,
-            0.004428,  -0.999296,  -0.037271]
-   camera_ext_t: [0.022493, 0.051440, 0.063128] 
+         [0.0333626 , -0.124399  , 0.991671,
+        -0.999402, -0.0132409 , 0.0319617 ,
+          0.00915462,  -0.992144,  -0.124766]
+   camera_ext_t: [ -0.605626, 0.02672, 0.784712] 
    # camera_ext_t: [0,0,0] 
    # Rough extrinsic value, form CAD model, is not correct enough, but can be online calibrated in our datasets.
    # camera_ext_R:

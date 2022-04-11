@@ -142,7 +142,7 @@ public:
         double m_planar_check_dis = 0.05;
         double m_lidar_imu_time_delay = 0;
         double m_long_rang_pt_dis = 500.0;
-        bool m_if_publish_feature_map = true;
+        bool m_if_publish_feature_map = false;
         int iterCount = 0;
         int NUM_MAX_ITERATIONS = 0;
         int FOV_RANGE = 4; // range of FOV = FOV_RANGE * cube_len
@@ -176,6 +176,8 @@ public:
         Eigen::Vector3d position_last = Zero3d;
         double copy_time, readd_time, fov_check_time, readd_box_time, delete_box_time;
         double kdtree_incremental_time, kdtree_search_time;
+
+        Eigen::Matrix<double, DIM_OF_STATES, 1> cout_solution, cout_solution1;
 
         std::deque<sensor_msgs::PointCloud2::ConstPtr> lidar_buffer;
         std::deque<sensor_msgs::Imu::ConstPtr> imu_buffer_lio;
@@ -343,6 +345,7 @@ public:
                 get_ros_parameter<std::string>(m_ros_node_handle, "/IMU_topic", IMU_topic, std::string("/livox/imu"));
                 get_ros_parameter<std::string>(m_ros_node_handle, "/Image_topic", IMAGE_topic, std::string("/camera/image_color"));
                 IMAGE_topic_compressed = std::string(IMAGE_topic).append("/compressed");
+                cout << "相机topic:  " << IMAGE_topic_compressed << endl;
                 /// zed2/zed_node/left/image_rect_color
                 if (1)
                 {
@@ -426,6 +429,8 @@ public:
 
                 XAxisPoint_body = Eigen::Vector3f(LIDAR_SP_LEN, 0.0, 0.0);
                 XAxisPoint_world = Eigen::Vector3f(LIDAR_SP_LEN, 0.0, 0.0);
+
+                // g_lio_state.rot_end =
 
                 downSizeFilterSurf.setLeafSize(m_voxel_downsample_size_surf, m_voxel_downsample_size_surf, m_voxel_downsample_size_axis_z);
                 downSizeFilterMap.setLeafSize(filter_size_map_min, filter_size_map_min, filter_size_map_min);

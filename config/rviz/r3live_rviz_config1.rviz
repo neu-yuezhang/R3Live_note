@@ -12,7 +12,6 @@ Panels:
         - /RGB_map1/PointCloud21
         - /RGB_map1/PointCloud22
         - /RGB_map1/PointCloud23
-        - /PointCloud21
       Splitter Ratio: 0.4651159942150116
     Tree Height: 536
   - Class: rviz/Selection
@@ -21,7 +20,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: current_scan
   - Class: rviz/Displays
     Help Height: 138
     Name: Displays
@@ -2101,7 +2100,7 @@ Visualization Manager:
       Size (Pixels): 3
       Size (m): 0.10000000149011612
       Style: Flat Squares
-      Topic: /laser_cloud_ground
+      Topic: /cloud_effected
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -2132,25 +2131,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 60.3885498046875
+      Distance: 15.87026309967041
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -1.4634268283843994
-        Y: -29.15294647216797
-        Z: -4.809266567230225
+        X: 5.226541996002197
+        Y: 7.006368160247803
+        Z: -0.005139680579304695
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.30479753017425537
+      Pitch: 0.3247973918914795
       Target Frame: aft_mapped
       Value: Orbit (rviz)
-      Yaw: 3.121391773223877
+      Yaw: 2.6863901615142822
     Saved:
       - Class: rviz/ThirdPersonFollower
         Distance: 2.466799259185791

@@ -57,8 +57,8 @@ static const Eigen::Matrix3d Eye3d(Eigen::Matrix3d::Identity());
 static const Eigen::Matrix3f Eye3f(Eigen::Matrix3f::Identity());
 static const Eigen::Vector3d Zero3d(0, 0, 0);
 static const Eigen::Vector3f Zero3f(0, 0, 0);
-static const Eigen::Vector3d Lidar_offset_to_IMU(0.05512, 0.02226, 0.0297); // Horizon
-// static const Eigen::Vector3d Lidar_offset_to_IMU(0.04165, 0.02326, -0.0284); // Avia
+// static const Eigen::Vector3d Lidar_offset_to_IMU(0.05512, 0.02226, 0.0297); // Horizon
+static const Eigen::Vector3d Lidar_offset_to_IMU(0.04165, 0.02326, -0.0284); // Avia
 
 struct Pose6D
 {
@@ -138,7 +138,7 @@ struct Camera_Lidar_queue
         double m_if_lidar_start_first = 1;
         double m_camera_imu_td = 0;
 
-        int m_if_acc_mul_G = 0;
+        int m_if_acc_mul_G = 1;
 
         int m_if_have_lidar_data = 0;
         int m_if_have_camera_data = 0;
@@ -318,8 +318,8 @@ public:
         Eigen::Vector3d bias_a;  // [12-14] accelerator bias
         Eigen::Vector3d gravity; // [15-17] the estimated gravity acceleration 估计的重力加速度
 
-        Eigen::Matrix3d rot_ext_i2c;                             // [18-20] Extrinsic between IMU frame to Camera frame on rotation. IMU帧与摄像机帧之间的外部旋转
-        Eigen::Vector3d pos_ext_i2c;                             // [21-23] Extrinsic between IMU frame to Camera frame on position. IMU帧与摄像机帧之间的外部位置
+        Eigen::Matrix3d rot_ext_i2c;                             // [18-20]IMU帧与摄像机帧之间的外部旋转 Extrinsic between IMU frame to Camera frame on rotation.
+        Eigen::Vector3d pos_ext_i2c;                             // [21-23]IMU帧与摄像机帧之间的外部位置 Extrinsic between IMU frame to Camera frame on position.
         double td_ext_i2c_delta;                                 // [24]    Extrinsic between IMU frame to Camera frame on position.
         vec_4 cam_intrinsic;                                     // [25-28] Intrinsice of camera [fx, fy, cx, cy] 相机内参
         Eigen::Matrix<double, DIM_OF_STATES, DIM_OF_STATES> cov; // states covariance 状态协方差

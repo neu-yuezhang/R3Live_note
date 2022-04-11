@@ -14,7 +14,9 @@ r3live_common:
    estimate_intrinsic: 1            # If enable estimate the online intrinsic calibration of the camera lens. [default = 1] 
    maximum_vio_tracked_pts: 600     # The maximum points for tracking. [default = 600]
    append_global_map_point_step: 4  # The point step of append point to global map. [default = 4]
-
+ 0.0333626  -0.999401 0.00915464
+ -0.124399 -0.0132409  -0.992144
+  0.991671  0.0319617  -0.124766
 r3live_vio:
    image_width: 1280
    image_height: 720

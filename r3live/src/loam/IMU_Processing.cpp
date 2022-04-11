@@ -78,6 +78,7 @@ void ImuProcess::IMU_Initial(const MeasureGroup &meas, StatesGroup &state_inout,
                 cur_acc << imu_acc.x, imu_acc.y, imu_acc.z;
                 cur_gyr << gyr_acc.x, gyr_acc.y, gyr_acc.z;
 
+                //计算加速度和角速度均值 - 即期望
                 mean_acc += (cur_acc - mean_acc) / N;
                 mean_gyr += (cur_gyr - mean_gyr) / N;
 
@@ -98,7 +99,7 @@ void ImuProcess::IMU_Initial(const MeasureGroup &meas, StatesGroup &state_inout,
 
 void ImuProcess::lic_state_propagate(const MeasureGroup &meas, StatesGroup &state_inout)
 {
-        /*** add the imu of the last frame-tail to the of current frame-head ***/
+        /*** add the imu of the last frame-tail to the of current frame-head   将最后一个帧尾的imu加入到当前帧头中 ***/
         auto v_imu = meas.imu;
         v_imu.push_front(last_imu_);
         // const double &imu_beg_time = v_imu.front()->header.stamp.toSec();
@@ -228,9 +229,9 @@ StatesGroup ImuProcess::imu_preintegration(const StatesGroup &state_in, std::deq
                 F_x.block<3, 3>(6, 15) = Eye3d * dt;
 
                 Eigen::Matrix3d cov_acc_diag, cov_gyr_diag, cov_omega_diag;
-                cov_omega_diag = Eigen::Vector3d(COV_OMEGA_NOISE_DIAG, COV_OMEGA_NOISE_DIAG, COV_OMEGA_NOISE_DIAG).asDiagonal();
-                cov_acc_diag = Eigen::Vector3d(COV_ACC_NOISE_DIAG, COV_ACC_NOISE_DIAG, COV_ACC_NOISE_DIAG).asDiagonal();
-                cov_gyr_diag = Eigen::Vector3d(COV_GYRO_NOISE_DIAG, COV_GYRO_NOISE_DIAG, COV_GYRO_NOISE_DIAG).asDiagonal();
+                cov_omega_diag = Eigen::Vector3d(COV_OMEGA_NOISE_DIAG, COV_OMEGA_NOISE_DIAG, COV_OMEGA_NOISE_DIAG).asDiagonal(); //过程噪声
+                cov_acc_diag = Eigen::Vector3d(COV_ACC_NOISE_DIAG, COV_ACC_NOISE_DIAG, COV_ACC_NOISE_DIAG).asDiagonal(); //过程噪声
+                cov_gyr_diag = Eigen::Vector3d(COV_GYRO_NOISE_DIAG, COV_GYRO_NOISE_DIAG, COV_GYRO_NOISE_DIAG).asDiagonal(); //过程噪声
                 // cov_w.block<3, 3>(0, 0) = cov_omega_diag * dt * dt;
                 cov_w.block<3, 3>(0, 0) = Jr_omega_dt * cov_omega_diag * Jr_omega_dt * dt * dt;
                 cov_w.block<3, 3>(3, 3) = R_imu * cov_gyr_diag * R_imu.transpose() * dt * dt;
@@ -310,7 +311,7 @@ void ImuProcess::lic_point_cloud_undistort(const MeasureGroup &meas, const State
         const double &imu_end_time = v_imu.back()->header.stamp.toSec();
         const double &pcl_beg_time = meas.lidar_beg_time; //当前帧点云的时间
         /*** sort point clouds by offset time 根据偏移时间对点云进行排序 ***/
-        pcl_out = *(meas.lidar);
+        pcl_out = *(meas.lidar); //提取出lidar数据
         std::sort(pcl_out.points.begin(), pcl_out.points.end(), time_list);
         const double &pcl_end_time = pcl_beg_time + pcl_out.points.back().curvature / double(1000); //当前帧最后一个点云的时间
         /*std::cout << "[ IMU Process ]: Process lidar from " << pcl_beg_time - g_lidar_star_tim << " to " << pcl_end_time- g_lidar_star_tim << ", "
@@ -447,7 +448,7 @@ void ImuProcess::Process(const MeasureGroup &meas, StatesGroup &stat, PointCloud
 
                 last_imu_ = meas.imu.back();
 
-                if (init_iter_num > MAX_INI_COUNT)
+                if (init_iter_num > MAX_INI_COUNT)  //默认不进去
                 {
                         imu_need_init_ = false;
                         // std::cout<<"mean acc: "<<mean_acc<<" acc measures in word frame:"<<state.rot_end.transpose()*mean_acc<<std::endl;

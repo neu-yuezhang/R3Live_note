@@ -128,6 +128,17 @@ void Image_frame::inverse_pose()
         m_pose_c2w_t = -(m_pose_w2c_q.inverse() * m_pose_w2c_t);
 }
 
+/**
+ * @brief 世界坐标系下3d点投影到相机坐标系
+ * 
+ * @param in_pt 3d点
+ * @param cam_K 
+ * @param u 
+ * @param v 
+ * @param scale 尺度
+ * @return true 
+ * @return false 
+ */
 bool Image_frame::project_3d_to_2d(const pcl::PointXYZI &in_pt, Eigen::Matrix3d &cam_K, double &u, double &v, const double &scale)
 {
         if (!m_if_have_set_pose)
@@ -149,7 +160,7 @@ bool Image_frame::project_3d_to_2d(const pcl::PointXYZI &in_pt, Eigen::Matrix3d 
 
         vec_3 pt_w(in_pt.x, in_pt.y, in_pt.z), pt_cam;
         // pt_cam = (m_pose_w2c_q.inverse() * pt_w - m_pose_w2c_q.inverse()*m_pose_w2c_t);
-        pt_cam = (m_pose_c2w_q * pt_w + m_pose_c2w_t);
+        pt_cam = (m_pose_c2w_q * pt_w + m_pose_c2w_t); //把世界坐标系的点转到相机坐标系下
         if (pt_cam(2) < 0.001)
         {
                 return false;

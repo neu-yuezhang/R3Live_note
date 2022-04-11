@@ -158,8 +158,8 @@ struct Image_frame
         int m_if_have_set_intrinsic = 0;
         Eigen::Matrix3d m_cam_K;
         double fx, fy, cx, cy;
-        eigen_q m_pose_w2c_q = eigen_q::Identity();
-        vec_3 m_pose_w2c_t = vec_3(0, 0, 0);
+        eigen_q m_pose_w2c_q = eigen_q::Identity();  //相机相对于世界坐标系的位姿
+        vec_3 m_pose_w2c_t = vec_3(0, 0, 0);     //相机相对于世界坐标系的位置
         eigen_q m_pose_c2w_q = eigen_q::Identity();
         vec_3 m_pose_c2w_t = vec_3(0, 0, 0);
         int m_if_have_set_pose = 0;

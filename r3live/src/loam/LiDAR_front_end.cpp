@@ -308,6 +308,7 @@ void horizon_handler(const livox_ros_driver::CustomMsg::ConstPtr &msg)
         ros::Time ct;
         ct.fromNSec(msg->timebase);
         pub_func(pl_full, pub_full, msg->header.stamp);
+        
         pub_func(pl_surf, pub_surf, msg->header.stamp);
         pub_func(pl_corn, pub_corn, msg->header.stamp);
 }
@@ -349,7 +350,7 @@ void give_feature(pcl::PointCloud<PointType> &pl, vector<orgtype> &types, pcl::P
                 cout << head << endl;
         for (uint i = head; i < plsize2; i += g_LiDAR_sampling_point_step)
         {
-                if (types[i].range > 0.01)
+                if (types[i].range > blind)
                 {
                         ap.x = pl[i].x;
                         ap.y = pl[i].y;
